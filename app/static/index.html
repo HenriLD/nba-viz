@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>nba-viz</title>
+<script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
+<style>
+  :root { --bg:#101418; --panel:#1a2027; --text:#e8e8e8; --accent:#e56e24; --muted:#8a949e; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text);
+         font-family: Georgia, 'Times New Roman', serif; }
+  header { padding:18px 24px; border-bottom:1px solid #2a323b; display:flex; align-items:baseline; gap:12px; }
+  header h1 { margin:0; font-size:22px; font-style:italic; }
+  header span { color:var(--muted); font-size:13px; }
+  #chat { max-width: 880px; margin:0 auto; padding:16px 16px 120px; }
+  .msg { margin:14px 0; line-height:1.5; }
+  .msg.user { text-align:right; }
+  .msg.user .bubble { background:var(--accent); color:#fff; }
+  .msg .bubble { display:inline-block; padding:10px 14px; border-radius:12px;
+                 background:var(--panel); max-width:85%; text-align:left; white-space:pre-wrap; }
+  .chart { background:#fff; border-radius:12px; padding:6px; margin:10px 0; }
+  .thinking { color:var(--muted); font-style:italic; }
+  form { position:fixed; bottom:0; left:0; right:0; background:var(--bg);
+         border-top:1px solid #2a323b; padding:14px; }
+  .row { max-width:880px; margin:0 auto; display:flex; gap:10px; }
+  input { flex:1; padding:12px 14px; border-radius:10px; border:1px solid #2a323b;
+          background:var(--panel); color:var(--text); font-size:15px; font-family:inherit; }
+  button { padding:12px 22px; border-radius:10px; border:none; background:var(--accent);
+           color:#fff; font-size:15px; cursor:pointer; font-family:inherit; }
+  button:disabled { opacity:.5; cursor:default; }
+  .hints { max-width:880px; margin:8px auto 0; color:var(--muted); font-size:12.5px; }
+  .hints a { color:var(--muted); cursor:pointer; text-decoration:underline; margin-right:10px; }
+</style>
+</head>
+<body>
+<header><h1>nba-viz</h1><span>ask for a chart in plain English</span></header>
+<div id="chat"></div>
+<form id="form">
+  <div class="row">
+    <input id="input" placeholder="e.g. Show me Curry's shot chart this season" autocomplete="off">
+    <button id="send" type="submit">Send</button>
+  </div>
+  <div class="hints">Try:
+    <a>Jokic vs Embiid scoring by season</a>
+    <a>Where does Tatum like to shoot from?</a>
+    <a>Who leads the league in assists?</a>
+    <a>How does Luka shoot against tight defense?</a>
+  </div>
+</form>
+<script>
+const chat = document.getElementById('chat');
+const form = document.getElementById('form');
+const input = document.getElementById('input');
+const send = document.getElementById('send');
+const history = [];
+
+document.querySelectorAll('.hints a').forEach(a =>
+  a.addEventListener('click', () => { input.value = a.textContent; form.requestSubmit(); }));
+
+function addBubble(role, text) {
+  const div = document.createElement('div');
+  div.className = 'msg ' + role;
+  const b = document.createElement('div');
+  b.className = 'bubble';
+  b.textContent = text;
+  div.appendChild(b);
+  chat.appendChild(div);
+  div.scrollIntoView({behavior:'smooth', block:'end'});
+  return b;
+}
+
+function addChart(figure) {
+  const div = document.createElement('div');
+  div.className = 'chart';
+  chat.appendChild(div);
+  Plotly.newPlot(div, figure.data, figure.layout, {responsive:true, displaylogo:false});
+  div.scrollIntoView({behavior:'smooth', block:'end'});
+}
+
+form.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const message = input.value.trim();
+  if (!message) return;
+  input.value = '';
+  send.disabled = true;
+  addBubble('user', message);
+  const pending = addBubble('assistant', 'thinking…');
+  pending.classList.add('thinking');
+  try {
+    const res = await fetch('/api/chat', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({message, history})
+    });
+    if (!res.ok) throw new Error((await res.json()).detail || res.statusText);
+    const data = await res.json();
+    pending.parentElement.remove();
+    if (data.figure) addChart(data.figure);
+    if (data.reply) addBubble('assistant', data.reply);
+    history.push({role:'user', content: message});
+    history.push({role:'assistant', content: data.reply || '[chart]'});
+    if (history.length > 20) history.splice(0, history.length - 20);
+  } catch (err) {
+    pending.textContent = 'Error: ' + err.message;
+  } finally {
+    send.disabled = false;
+    input.focus();
+  }
+});
+input.focus();
+</script>
+</body>
+</html>
