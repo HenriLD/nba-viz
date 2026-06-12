@@ -2,7 +2,7 @@
 title: nba-viz
 emoji: 🏀
 colorFrom: gray
-colorTo: orange
+colorTo: yellow
 sdk: docker
 app_port: 7860
 pinned: false
