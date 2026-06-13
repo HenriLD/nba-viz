@@ -9,6 +9,7 @@ import pandas as pd
 import plotly.graph_objects as go
 
 from app import theme
+from app.labels import prettify
 from app.result import ChartResult
 from app.theme import PALETTE, SERIES
 from core.db import safe_select
@@ -115,7 +116,7 @@ def _scatter(df, x, y, series):
 
 
 def _table(df):
-    head = dict(values=[f"<b>{c}</b>" for c in df.columns],
+    head = dict(values=[f"<b>{prettify(c)}</b>" for c in df.columns],
                 fill_color="#1f2630", font=dict(color=PALETTE["ink"], size=13),
                 align="left", height=30)
     cells = dict(values=[df[c].tolist() for c in df.columns],
@@ -152,10 +153,11 @@ def build_figure(df: pd.DataFrame, chart_type: str, x: str | None, y: str | None
     height = max(440, 30 * len(df) + 160) if chart_type == "horizontal_bar" else 480
     theme.style(fig, title, subtitle=subtitle, height=height)
     if chart_type != "horizontal_bar":
-        fig.update_xaxes(title_text=x)
-        fig.update_yaxes(title_text=y)
+        fig.update_xaxes(title_text=prettify(x))
+        fig.update_yaxes(title_text=prettify(y))
     else:
-        fig.update_xaxes(title_text=y)
+        fig.update_xaxes(title_text=prettify(y))
+        fig.update_yaxes(title_text=prettify(x))
     return fig
 
 

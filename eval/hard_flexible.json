@@ -1,0 +1,11 @@
+[
+  {"q": "Which 5 players improved their three-point percentage the most from 2022-23 to 2024-25?", "expect_figure": true},
+  {"q": "Show the Lakers' cumulative point differential game by game this season", "expect_figure": true},
+  {"q": "Compare Jokic and Embiid scoring per game in wins only, season by season", "expect_figure": true},
+  {"q": "Which teams have the best win percentage on the second night of a back-to-back this season?", "expect_figure": true},
+  {"q": "Plot Curry's three-pointers made per game this season with a 15-game rolling average", "expect_figure": true},
+  {"q": "Which player has the biggest home-vs-away scoring gap this season?", "expect_figure": true},
+  {"q": "How does the Nuggets' offense do against teams they've played 3 or more times this season?", "expect_figure": true},
+  {"q": "Show me each team's record specifically in the final 30 seconds of one-possession games", "expect_figure": false},
+  {"q": "Which players score the most when they share the floor with LeBron?", "expect_figure": false}
+]

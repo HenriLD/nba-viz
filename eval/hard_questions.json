@@ -1,0 +1,18 @@
+[
+  {"q": "Between Embiid, Jokic and Giannis, who grabbed the most boards per game in 2022-23?",
+   "template_id": "league_leaders", "params": {"stat": "reb", "season": "2022-23"}},
+  {"q": "I want to see how clean Chris Paul has been with the ball this year — turnovers game by game",
+   "template_id": "player_stat_trend", "params": {"player": "chris paul", "stat": "tov"}},
+  {"q": "Does Embiid put up bigger numbers at home or away?",
+   "template_id": "player_split", "params": {"player": "embiid", "split": "home_away"}},
+  {"q": "Stack up Dame and Booker's free throw shooting across the seasons we have",
+   "template_id": "player_comparison", "params": {"players": ["lillard", "booker"], "stat": "ft_pct"}},
+  {"q": "Map out where Wembanyama gets his buckets",
+   "template_id": "shot_zone_breakdown", "params": {"player": "wembanyama"}},
+  {"q": "Out West, how do the standings look this year?",
+   "template_id": "standings", "params": {"conference": "West"}},
+  {"q": "Is SGA more efficient in games the Thunder win?",
+   "template_id": "player_split", "params": {"player": "shai gilgeous-alexander", "split": "win_loss"}},
+  {"q": "Show me the Celtics' defense — points trend across this season",
+   "template_id": "team_stat_trend", "params": {"team": "celtics", "stat": "pts"}}
+]
