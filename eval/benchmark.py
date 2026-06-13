@@ -57,12 +57,14 @@ def _timed_template(model: str, question: str):
     """One forced render_chart call. Returns (parsed_or_None, latency, tokens, err)."""
     t = time.monotonic()
     try:
+        # auto tool_choice (not forced function) — forced choice is rejected by
+        # several providers. Offering only render_chart still measures template
+        # selection: the model calls it when a template fits.
         resp = _client().chat.completions.create(
             model=model,
             messages=[{"role": "system", "content": system_prompt()},
                       {"role": "user", "content": question}],
-            tools=[RENDER_CHART_TOOL],
-            tool_choice={"type": "function", "function": {"name": "render_chart"}},
+            tools=[RENDER_CHART_TOOL], tool_choice="auto",
             temperature=0.0, max_tokens=600)
         dt = time.monotonic() - t
         tcs = resp.choices[0].message.tool_calls
@@ -169,11 +171,34 @@ def write_reports(results: dict) -> None:
     print("\n" + md)
 
 
+def run_template_only(models: list[str]) -> dict:
+    """Re-measure only the template path, merging into existing results so the
+    (still-valid) flexible numbers are preserved."""
+    path = _RESULTS / "benchmark.json"
+    results = json.loads(path.read_text()) if path.exists() else {}
+    for model in models:
+        print(f"[tmpl] {model} …", flush=True)
+        try:
+            t = bench_template(model)
+            entry = results.get(model) or {"available": True}
+            entry["available"] = True
+            entry["template"] = t
+            entry.pop("error", None)
+            results[model] = entry
+            print(f"       template {t['acc']:.0%} ({t['avg_latency']:.1f}s) "
+                  f"errors {t['errors']}", flush=True)
+        except Exception as e:  # noqa: BLE001
+            print(f"       FAILED: {type(e).__name__}: {e}", flush=True)
+    return results
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--models", nargs="+", required=True)
     ap.add_argument("--skip-availability", action="store_true")
     ap.add_argument("--check-only", action="store_true")
+    ap.add_argument("--template-only", action="store_true",
+                    help="re-run only the template path; merge with existing results")
     args = ap.parse_args()
 
     if args.check_only:
@@ -182,7 +207,10 @@ def main() -> int:
             print(f"{'OK  ' if ok else 'MISS'}  {m}")
         return 0
 
-    results = run(args.models, check=not args.skip_availability)
+    if args.template_only:
+        results = run_template_only(args.models)
+    else:
+        results = run(args.models, check=not args.skip_availability)
     write_reports(results)
     return 0
 

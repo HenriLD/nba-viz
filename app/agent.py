@@ -259,17 +259,16 @@ def propose_tool_call(message: str, model: str | None = None,
     Set False to let the model freely choose render_chart vs query_chart.
     """
     client = _client()
-    kwargs = dict(
+    # Offer only render_chart and let the model choose to call it (auto). A
+    # forced {"type":"function",...} tool_choice is rejected by several
+    # OpenRouter providers, so auto is the portable way to measure template
+    # selection across models.
+    tools = [RENDER_CHART_TOOL] if force_template else [RENDER_CHART_TOOL, QUERY_CHART_TOOL]
+    resp = client.chat.completions.create(
         model=model or _model(),
         messages=[{"role": "system", "content": system_prompt()},
                   {"role": "user", "content": message}],
-        tools=[RENDER_CHART_TOOL, QUERY_CHART_TOOL],
-        temperature=0.0, max_tokens=600)
-    if force_template:
-        kwargs["tools"] = [RENDER_CHART_TOOL]
-        kwargs["tool_choice"] = {"type": "function",
-                                 "function": {"name": "render_chart"}}
-    resp = client.chat.completions.create(**kwargs)
+        tools=tools, tool_choice="auto", temperature=0.0, max_tokens=600)
     tcs = resp.choices[0].message.tool_calls
     if not tcs:
         return None
