@@ -3,6 +3,7 @@
 Small models are unreliable with exact names/IDs, so resolution always happens
 server-side against the players/teams tables.
 """
+import unicodedata
 from dataclasses import dataclass
 from functools import lru_cache
 
@@ -13,6 +14,13 @@ from core.db import query_df
 
 class EntityNotFound(ValueError):
     pass
+
+
+def _fold(s: str) -> str:
+    """Lowercase and strip diacritics: 'Jokić' -> 'jokic', 'Dončić' -> 'doncic'.
+    Users type unaccented names; the NBA database stores the real ones."""
+    nfkd = unicodedata.normalize("NFKD", s.strip().lower())
+    return "".join(c for c in nfkd if not unicodedata.combining(c))
 
 
 @dataclass
@@ -31,7 +39,7 @@ class Team:
 @lru_cache(maxsize=1)
 def _player_index() -> dict[str, Player]:
     df = query_df("SELECT player_id, full_name FROM players")
-    return {r.full_name.lower(): Player(r.player_id, r.full_name)
+    return {_fold(r.full_name): Player(r.player_id, r.full_name)
             for r in df.itertuples()}
 
 
@@ -43,12 +51,12 @@ def _team_index() -> dict[str, Team]:
         t = Team(r.team_id, r.full_name, r.abbreviation)
         for key in (r.full_name, r.nickname, r.city, r.abbreviation):
             if key:
-                idx[key.lower()] = t
+                idx[_fold(key)] = t
     return idx
 
 
 def _resolve(name: str, index: dict, kind: str):
-    key = name.strip().lower()
+    key = _fold(name)
     if key in index:
         return index[key]
     match = process.extractOne(key, index.keys(), scorer=fuzz.WRatio, score_cutoff=80)

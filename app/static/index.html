@@ -3,51 +3,127 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>nba-viz</title>
-<script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
+<title>nba-viz — ask for NBA charts in plain English</title>
+<!-- Keep in sync with the plotly version in requirements.txt (python 6.8 = js 3.6) -->
+<script src="https://cdn.plot.ly/plotly-3.6.0.min.js"></script>
 <style>
-  :root { --bg:#101418; --panel:#1a2027; --text:#e8e8e8; --accent:#e56e24; --muted:#8a949e; }
+  /* Palette mirrors app/theme.py — keep them in sync. */
+  :root {
+    --bg:#12161b; --card:#161c23; --panel:#181f26; --border:#232b34;
+    --ink:#ece7dd; --muted:#8d97a1; --accent:#e8833a; --accent2:#45b8a4;
+  }
   * { box-sizing: border-box; }
-  body { margin:0; background:var(--bg); color:var(--text);
-         font-family: Georgia, 'Times New Roman', serif; }
-  header { padding:18px 24px; border-bottom:1px solid #2a323b; display:flex; align-items:baseline; gap:12px; }
-  header h1 { margin:0; font-size:22px; font-style:italic; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin:0; background:var(--bg); color:var(--ink);
+    font-family: Georgia, 'Times New Roman', serif;
+    background-image: radial-gradient(ellipse 90% 55% at 50% -10%,
+                      rgba(232,131,58,0.06), transparent);
+  }
+
+  header {
+    padding:20px 28px 16px; display:flex; align-items:baseline; gap:14px;
+    border-bottom:1px solid var(--border);
+    position:sticky; top:0; background:rgba(18,22,27,0.92);
+    backdrop-filter: blur(8px); z-index:10;
+  }
+  header h1 { margin:0; font-size:23px; font-style:italic; letter-spacing:.3px; }
+  header h1 .ball { font-style:normal; margin-right:6px; }
+  header h1 em { color:var(--accent); }
   header span { color:var(--muted); font-size:13px; }
-  #chat { max-width: 880px; margin:0 auto; padding:16px 16px 120px; }
-  .msg { margin:14px 0; line-height:1.5; }
-  .msg.user { text-align:right; }
-  .msg.user .bubble { background:var(--accent); color:#fff; }
-  .msg .bubble { display:inline-block; padding:10px 14px; border-radius:12px;
-                 background:var(--panel); max-width:85%; text-align:left; white-space:pre-wrap; }
-  .chart { background:#fff; border-radius:12px; padding:6px; margin:10px 0; }
+
+  #chat { max-width: 900px; margin:0 auto; padding:20px 16px 150px; }
+  .msg { margin:18px 0; line-height:1.55; display:flex; }
+  .msg.user { justify-content:flex-end; }
+  .msg .bubble {
+    padding:11px 16px; border-radius:14px; max-width:78%;
+    white-space:pre-wrap; font-size:15px;
+  }
+  .msg.user .bubble {
+    background:linear-gradient(135deg, var(--accent), #d4691f);
+    color:#16100a; border-bottom-right-radius:4px; font-weight:500;
+  }
+  .msg.assistant .bubble {
+    background:var(--panel); border:1px solid var(--border);
+    border-bottom-left-radius:4px;
+  }
+
+  .chart {
+    background:var(--card); border:1px solid var(--border);
+    border-radius:14px; margin:14px 0; min-height:300px; overflow:hidden;
+    box-shadow: 0 6px 24px rgba(0,0,0,0.35);
+  }
+
   .thinking { color:var(--muted); font-style:italic; }
-  form { position:fixed; bottom:0; left:0; right:0; background:var(--bg);
-         border-top:1px solid #2a323b; padding:14px; }
-  .row { max-width:880px; margin:0 auto; display:flex; gap:10px; }
-  input { flex:1; padding:12px 14px; border-radius:10px; border:1px solid #2a323b;
-          background:var(--panel); color:var(--text); font-size:15px; font-family:inherit; }
-  button { padding:12px 22px; border-radius:10px; border:none; background:var(--accent);
-           color:#fff; font-size:15px; cursor:pointer; font-family:inherit; }
-  button:disabled { opacity:.5; cursor:default; }
-  .hints { max-width:880px; margin:8px auto 0; color:var(--muted); font-size:12.5px; }
-  .hints a { color:var(--muted); cursor:pointer; text-decoration:underline; margin-right:10px; }
+  .thinking .ball { display:inline-block; animation:bounce .6s ease infinite alternate; }
+  @keyframes bounce { from { transform:translateY(0) } to { transform:translateY(-5px) } }
+
+  form {
+    position:fixed; bottom:0; left:0; right:0;
+    background:linear-gradient(transparent, var(--bg) 30%);
+    padding:26px 14px 16px;
+  }
+  .row { max-width:900px; margin:0 auto; display:flex; gap:10px; }
+  input {
+    flex:1; padding:13px 16px; border-radius:12px;
+    border:1px solid var(--border); background:var(--panel);
+    color:var(--ink); font-size:15px; font-family:inherit; outline:none;
+    transition: border-color .15s;
+  }
+  input:focus { border-color:var(--accent); }
+  input::placeholder { color:var(--muted); font-style:italic; }
+  button {
+    padding:13px 26px; border-radius:12px; border:none;
+    background:var(--accent); color:#16100a; font-size:15px; font-weight:600;
+    cursor:pointer; font-family:inherit; transition: filter .15s;
+  }
+  button:hover { filter:brightness(1.1); }
+  button:disabled { opacity:.45; cursor:default; }
+
+  .hints { max-width:900px; margin:10px auto 0; display:flex; flex-wrap:wrap; gap:8px; }
+  .hints a {
+    color:var(--muted); font-size:12.5px; cursor:pointer; text-decoration:none;
+    border:1px solid var(--border); border-radius:999px; padding:5px 12px;
+    transition: all .15s; background:rgba(24,31,38,0.6);
+  }
+  .hints a:hover { color:var(--ink); border-color:var(--accent); }
+
+  .welcome { text-align:center; color:var(--muted); padding:60px 20px 20px; }
+  .welcome .big { font-size:42px; margin-bottom:10px; }
+  .welcome h2 { color:var(--ink); font-weight:normal; font-style:italic;
+                font-size:22px; margin:0 0 8px; }
+  .welcome p { font-size:14px; max-width:480px; margin:0 auto; line-height:1.6; }
 </style>
 </head>
 <body>
-<header><h1>nba-viz</h1><span>ask for a chart in plain English</span></header>
-<div id="chat"></div>
+<header>
+  <h1><span class="ball">🏀</span>nba‑<em>viz</em></h1>
+  <span>ask for NBA charts in plain English</span>
+</header>
+
+<div id="chat">
+  <div class="welcome" id="welcome">
+    <div class="big">🏀</div>
+    <h2>Settle the argument with a chart.</h2>
+    <p>Five seasons of NBA data — every box score, 1.1 million shot locations,
+       defender-distance splits — one question away.</p>
+  </div>
+</div>
+
 <form id="form">
   <div class="row">
-    <input id="input" placeholder="e.g. Show me Curry's shot chart this season" autocomplete="off">
+    <input id="input" placeholder="e.g. Show me Curry’s shot chart this season" autocomplete="off">
     <button id="send" type="submit">Send</button>
   </div>
-  <div class="hints">Try:
+  <div class="hints">
     <a>Jokic vs Embiid scoring by season</a>
     <a>Where does Tatum like to shoot from?</a>
     <a>Who leads the league in assists?</a>
     <a>How does Luka shoot against tight defense?</a>
+    <a>Warriors 3-point shooting trend</a>
   </div>
 </form>
+
 <script>
 const chat = document.getElementById('chat');
 const form = document.getElementById('form');
@@ -55,15 +131,22 @@ const input = document.getElementById('input');
 const send = document.getElementById('send');
 const history = [];
 
+const PLOTLY_CONFIG = {
+  responsive: true,
+  displaylogo: false,
+  modeBarButtonsToRemove: ['lasso2d', 'select2d', 'autoScale2d', 'zoomIn2d', 'zoomOut2d'],
+  toImageButtonOptions: { format: 'png', scale: 2, filename: 'nba-viz' }
+};
+
 document.querySelectorAll('.hints a').forEach(a =>
   a.addEventListener('click', () => { input.value = a.textContent; form.requestSubmit(); }));
 
-function addBubble(role, text) {
+function addBubble(role, html) {
   const div = document.createElement('div');
   div.className = 'msg ' + role;
   const b = document.createElement('div');
   b.className = 'bubble';
-  b.textContent = text;
+  b.textContent = html;
   div.appendChild(b);
   chat.appendChild(div);
   div.scrollIntoView({behavior:'smooth', block:'end'});
@@ -73,8 +156,16 @@ function addBubble(role, text) {
 function addChart(figure) {
   const div = document.createElement('div');
   div.className = 'chart';
+  // Reserve the figure's height up front so Plotly never autosizes against
+  // a collapsed container (the "3px-tall chart" bug).
+  const h = (figure.layout && figure.layout.height) || 480;
+  div.style.height = h + 'px';
   chat.appendChild(div);
-  Plotly.newPlot(div, figure.data, figure.layout, {responsive:true, displaylogo:false});
+  Plotly.newPlot(div, figure.data, figure.layout, PLOTLY_CONFIG).then(() => {
+    // Belt and suspenders: force a resize on the next frame, when the card's
+    // final CSS width is definitely known.
+    requestAnimationFrame(() => Plotly.Plots.resize(div));
+  });
   div.scrollIntoView({behavior:'smooth', block:'end'});
 }
 
@@ -82,11 +173,13 @@ form.addEventListener('submit', async (e) => {
   e.preventDefault();
   const message = input.value.trim();
   if (!message) return;
+  document.getElementById('welcome')?.remove();
   input.value = '';
   send.disabled = true;
   addBubble('user', message);
-  const pending = addBubble('assistant', 'thinking…');
+  const pending = addBubble('assistant', '');
   pending.classList.add('thinking');
+  pending.innerHTML = '<span class="ball">🏀</span> crunching the numbers…';
   try {
     const res = await fetch('/api/chat', {
       method: 'POST',
@@ -102,7 +195,8 @@ form.addEventListener('submit', async (e) => {
     history.push({role:'assistant', content: data.reply || '[chart]'});
     if (history.length > 20) history.splice(0, history.length - 20);
   } catch (err) {
-    pending.textContent = 'Error: ' + err.message;
+    pending.classList.remove('thinking');
+    pending.textContent = 'Something went wrong: ' + err.message;
   } finally {
     send.disabled = false;
     input.focus();

@@ -4,14 +4,18 @@ Each template is: a description (fed to the model's system prompt), a list of
 expected params, and a run() that executes parameterized SQL and builds a
 Plotly figure. The model never writes SQL or chart code — it only picks a
 template_id and fills params; everything else is validated server-side.
+
+All figures go through theme.style() so every chart shares the same
+broadcast-dark look, typography, and source line.
 """
 from dataclasses import dataclass, field
 from typing import Callable
 
 import plotly.graph_objects as go
 
-from app import court
+from app import court, theme
 from app.entities import resolve_player, resolve_team
+from app.theme import PALETTE, SERIES
 from core.db import query_df
 from core.seasons import current_season, validate_season
 from core.stats import RATIO_STATS, SIMPLE_STATS, stat_label, validate_stat
@@ -48,13 +52,21 @@ def _stat_select(stat: str, agg: bool) -> str:
     return stat  # per-game ratio column exists on the log tables
 
 
+def _is_pct(stat: str) -> bool:
+    return stat in RATIO_STATS
+
+
+def _fmt(val: float, stat: str) -> str:
+    return f"{val:.1%}" if _is_pct(stat) else f"{val:.1f}"
+
+
 # ---------------------------------------------------------------- templates
 
 def _player_stat_trend(params: dict) -> ChartResult:
     p = resolve_player(params["player"])
     season = _season(params)
     stat = validate_stat(params.get("stat", "pts"))
-    window = int(params.get("rolling_window") or 0)
+    window = int(params.get("rolling_window") or 10)
 
     df = query_df(f"""
         SELECT game_date, matchup, {_stat_select(stat, agg=False)} AS val
@@ -66,18 +78,28 @@ def _player_stat_trend(params: dict) -> ChartResult:
     if df.empty:
         raise ValueError(f"No games found for {p.full_name} in {season}.")
 
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(x=df["game_date"], y=df["val"], mode="lines+markers",
-                             name="Per game", text=df["matchup"]))
-    if window > 1:
-        fig.add_trace(go.Scatter(x=df["game_date"],
-                                 y=df["val"].rolling(window).mean(),
-                                 mode="lines", name=f"{window}-game avg",
-                                 line=dict(width=3)))
     label = stat_label(stat)
-    fig.update_layout(title=f"{p.full_name} — {label}, {season}",
-                      xaxis_title="Game date", yaxis_title=label)
-    return ChartResult(fig, f"{len(df)} games; season avg {df['val'].mean():.2f} {label}.")
+    avg = df["val"].mean()
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=df["game_date"], y=df["val"], mode="markers", name="Per game",
+        marker=dict(color=PALETTE["muted"], size=6, opacity=0.55),
+        text=df["matchup"],
+        hovertemplate="%{text} · %{x|%b %d}<br>%{y} " + label + "<extra></extra>"))
+    if len(df) > window:
+        fig.add_trace(go.Scatter(
+            x=df["game_date"], y=df["val"].rolling(window).mean(),
+            mode="lines", name=f"{window}-game average",
+            line=dict(color=PALETTE["accent"], width=3.5, shape="spline",
+                      smoothing=0.6)))
+    fig.add_hline(y=avg, line=dict(color=PALETTE["accent2"], width=1.2,
+                                   dash="3px,4px"),
+                  annotation_text=f"season avg {_fmt(avg, stat)}",
+                  annotation_font=dict(size=11, color=PALETTE["accent2"]))
+    fig.update_yaxes(title_text=label, tickformat=".0%" if _is_pct(stat) else None)
+    theme.style(fig, f"{p.full_name} — {label}",
+                subtitle=f"{season} regular season, game by game")
+    return ChartResult(fig, f"{len(df)} games; season avg {avg:.2f} {label}.")
 
 
 def _player_comparison(params: dict) -> ChartResult:
@@ -91,6 +113,7 @@ def _player_comparison(params: dict) -> ChartResult:
 
     ids = {f"p{i}": pl.player_id for i, pl in enumerate(players)}
     id_list = ", ".join(f":{k}" for k in ids)
+    pctfmt = ".0%" if _is_pct(stat) else None
 
     if season:
         validate_season(season)
@@ -100,13 +123,21 @@ def _player_comparison(params: dict) -> ChartResult:
             FROM player_game_logs
             WHERE player_id IN ({id_list}) AND season = :season
               AND season_type = 'Regular Season'
-            GROUP BY player_id
+            GROUP BY player_id ORDER BY val DESC
         """, {**ids, "season": season})
         if df.empty:
             raise ValueError(f"No data for those players in {season}.")
-        fig = go.Figure(go.Bar(x=df["player_name"], y=df["val"],
-                               text=df["val"].round(2), textposition="outside"))
-        fig.update_layout(title=f"{label} per game, {season}", yaxis_title=label)
+        fig = go.Figure(go.Bar(
+            x=df["player_name"], y=df["val"],
+            marker=dict(color=SERIES[:len(df)], opacity=0.92),
+            text=[_fmt(v, stat) for v in df["val"]],
+            textposition="outside", textfont=dict(size=14, color=PALETTE["ink"]),
+            cliponaxis=False,
+            hovertemplate="%{x}: %{y}<extra></extra>"))
+        fig.update_yaxes(title_text=f"{label} per game", tickformat=pctfmt,
+                         range=[0, float(df["val"].max()) * 1.18])
+        theme.style(fig, f"{label} — head to head",
+                    subtitle=f"{season} regular season, per-game averages")
         return ChartResult(fig, "; ".join(
             f"{r.player_name}: {r.val:.2f}" for r in df.itertuples()))
 
@@ -120,12 +151,22 @@ def _player_comparison(params: dict) -> ChartResult:
     if df.empty:
         raise ValueError("No data found for those players.")
     fig = go.Figure()
-    for pid, grp in df.groupby("player_id"):
-        fig.add_trace(go.Scatter(x=grp["season"], y=grp["val"],
-                                 mode="lines+markers",
-                                 name=grp["player_name"].iloc[0]))
-    fig.update_layout(title=f"{label} per game by season",
-                      xaxis_title="Season", yaxis_title=label)
+    for i, (pid, grp) in enumerate(df.groupby("player_id")):
+        name = grp["player_name"].iloc[0]
+        fig.add_trace(go.Scatter(
+            x=grp["season"], y=grp["val"], mode="lines+markers+text", name=name,
+            line=dict(color=SERIES[i % len(SERIES)], width=3,
+                      shape="spline", smoothing=0.6),
+            marker=dict(size=8),
+            text=[_fmt(v, stat) if j == len(grp) - 1 else ""
+                  for j, v in enumerate(grp["val"])],
+            textposition="middle right",
+            textfont=dict(size=12, color=SERIES[i % len(SERIES)]),
+            hovertemplate=name + " · %{x}: %{y}<extra></extra>"))
+    fig.update_yaxes(title_text=f"{label} per game", tickformat=pctfmt)
+    fig.update_xaxes(type="category")
+    theme.style(fig, f"{label} — season by season",
+                subtitle="Regular-season per-game averages")
     return ChartResult(fig, f"Compared {len(players)} players across "
                             f"{df['season'].nunique()} seasons.")
 
@@ -137,7 +178,7 @@ def _shot_chart(params: dict) -> ChartResult:
         SELECT loc_x, loc_y, shot_made_flag, action_type, shot_distance
         FROM shots
         WHERE player_id = :pid AND season = :season
-          AND season_type = 'Regular Season'
+          AND season_type = 'Regular Season' AND loc_y < 420
     """, {"pid": p.player_id, "season": season})
     if df.empty:
         raise ValueError(f"No shots found for {p.full_name} in {season}.")
@@ -145,17 +186,26 @@ def _shot_chart(params: dict) -> ChartResult:
     made = df[df["shot_made_flag"] == 1]
     missed = df[df["shot_made_flag"] == 0]
     fig = go.Figure(court.court_traces())
-    fig.add_trace(go.Scatter(x=missed["loc_x"], y=missed["loc_y"], mode="markers",
-                             name="Missed", marker=dict(color="#d62728", size=4,
-                             symbol="x", opacity=0.5),
-                             text=missed["action_type"]))
-    fig.add_trace(go.Scatter(x=made["loc_x"], y=made["loc_y"], mode="markers",
-                             name="Made", marker=dict(color="#2ca02c", size=4,
-                             opacity=0.6),
-                             text=made["action_type"]))
-    fig.update_layout(court.court_layout(
-        f"{p.full_name} shot chart, {season}"))
+    fig.add_trace(go.Scatter(
+        x=missed["loc_x"], y=missed["loc_y"], mode="markers", name="Missed",
+        marker=dict(color=PALETTE["missed"], size=5, symbol="x-thin",
+                    line=dict(width=1.2, color=PALETTE["missed"]), opacity=0.45),
+        text=missed["action_type"],
+        hovertemplate="%{text}<extra>missed</extra>"))
+    fig.add_trace(go.Scatter(
+        x=made["loc_x"], y=made["loc_y"], mode="markers", name="Made",
+        marker=dict(color=PALETTE["made"], size=5.5, opacity=0.75,
+                    line=dict(width=0)),
+        text=made["action_type"],
+        hovertemplate="%{text}<extra>made</extra>"))
     fg = len(made) / len(df)
+    fig.update_layout(**court.court_layout())
+    theme.style(
+        fig, f"{p.full_name} — shot chart",
+        subtitle=f"{season} regular season · {len(df):,} attempts · {fg:.1%} FG",
+        height=640)
+    fig.update_layout(legend=dict(orientation="h", x=0.5, xanchor="center",
+                                  y=1.02, yanchor="bottom"))
     return ChartResult(fig, f"{len(df)} shots, {len(made)} made ({fg:.1%} FG).")
 
 
@@ -165,20 +215,24 @@ def _shot_heatmap(params: dict) -> ChartResult:
     df = query_df("""
         SELECT loc_x, loc_y FROM shots
         WHERE player_id = :pid AND season = :season
-          AND season_type = 'Regular Season'
+          AND season_type = 'Regular Season' AND loc_y < 420
     """, {"pid": p.player_id, "season": season})
     if df.empty:
         raise ValueError(f"No shots found for {p.full_name} in {season}.")
 
     fig = go.Figure()
     fig.add_trace(go.Histogram2dContour(
-        x=df["loc_x"], y=df["loc_y"], colorscale="YlOrRd",
-        ncontours=12, showscale=False,
-        contours=dict(coloring="heatmap"), opacity=0.85))
+        x=df["loc_x"], y=df["loc_y"], colorscale=theme.HEAT_SCALE,
+        ncontours=16, showscale=False, line=dict(width=0),
+        contours=dict(coloring="heatmap"), hoverinfo="skip"))
     for tr in court.court_traces():
         fig.add_trace(tr)
-    fig.update_layout(court.court_layout(
-        f"{p.full_name} shot density, {season}"))
+    fig.update_layout(**court.court_layout())
+    theme.style(
+        fig, f"{p.full_name} — where the shots come from",
+        subtitle=f"{season} regular season · {len(df):,} attempts · "
+                 "brighter = more volume",
+        height=640)
     return ChartResult(fig, f"Heatmap of {len(df)} shot attempts.")
 
 
@@ -197,16 +251,28 @@ def _defender_distance(params: dict) -> ChartResult:
 
     order = ["0-2 Feet - Very Tight", "2-4 Feet - Tight",
              "4-6 Feet - Open", "6+ Feet - Wide Open"]
-    df["def_dist_range"] = df["def_dist_range"].astype("category")
+    labels = ["Very tight<br>0–2 ft", "Tight<br>2–4 ft",
+              "Open<br>4–6 ft", "Wide open<br>6+ ft"]
     df = df.set_index("def_dist_range").reindex(order).reset_index()
 
     fig = go.Figure()
-    fig.add_trace(go.Bar(x=df["def_dist_range"], y=df["fg_pct"], name="FG%",
-                         text=(df["fg_pct"] * 100).round(1), textposition="outside"))
-    fig.add_trace(go.Bar(x=df["def_dist_range"], y=df["efg_pct"], name="eFG%"))
-    fig.update_layout(
-        title=f"{p.full_name} shooting by closest defender distance, {season}",
-        yaxis_title="Percentage", yaxis_tickformat=".0%", barmode="group")
+    fig.add_trace(go.Bar(
+        x=labels, y=df["fg_pct"], name="FG%",
+        marker=dict(color=PALETTE["accent"], opacity=0.92),
+        text=[f"{v:.0%}" if v == v else "" for v in df["fg_pct"]],
+        textposition="outside", textfont=dict(size=13, color=PALETTE["ink"]),
+        cliponaxis=False,
+        customdata=df["fga"],
+        hovertemplate="%{x}: %{y:.1%} on %{customdata:.0f} FGA<extra>FG%</extra>"))
+    fig.add_trace(go.Bar(
+        x=labels, y=df["efg_pct"], name="eFG%",
+        marker=dict(color=PALETTE["accent2"], opacity=0.85),
+        hovertemplate="%{x}: %{y:.1%}<extra>eFG%</extra>"))
+    fig.update_layout(barmode="group", bargap=0.32, bargroupgap=0.08)
+    fig.update_yaxes(tickformat=".0%", rangemode="tozero")
+    theme.style(
+        fig, f"{p.full_name} — shooting vs. pressure",
+        subtitle=f"{season} regular season, by closest defender at release")
     return ChartResult(fig, "; ".join(
         f"{r.def_dist_range}: {r.fg_pct:.1%} on {r.fga:.0f} FGA"
         for r in df.itertuples() if r.fga))
@@ -231,11 +297,23 @@ def _league_leaders(params: dict) -> ChartResult:
     if df.empty:
         raise ValueError(f"No data for {season}.")
 
-    df = df.iloc[::-1]  # horizontal bar: leader on top
-    fig = go.Figure(go.Bar(x=df["val"], y=df["player_name"], orientation="h",
-                           text=df["val"].round(2), textposition="outside"))
-    fig.update_layout(title=f"Top {top_n} — {label} per game, {season} (min 20 GP)",
-                      xaxis_title=label, height=max(420, 30 * top_n))
+    df = df.iloc[::-1]
+    colors = [PALETTE["accent"] if i == len(df) - 1 else "rgba(232,131,58,0.55)"
+              for i in range(len(df))]
+    fig = go.Figure(go.Bar(
+        x=df["val"], y=df["player_name"], orientation="h",
+        marker=dict(color=colors),
+        text=[_fmt(v, stat) for v in df["val"]],
+        textposition="outside", textfont=dict(size=13, color=PALETTE["ink"]),
+        cliponaxis=False,
+        customdata=df["gp"],
+        hovertemplate="%{y}: %{x} over %{customdata} games<extra></extra>"))
+    fig.update_xaxes(tickformat=".0%" if _is_pct(stat) else None,
+                     range=[0, df["val"].max() * 1.14])
+    fig.update_yaxes(tickfont=dict(size=13, color=PALETTE["ink"]), gridcolor="rgba(0,0,0,0)")
+    theme.style(fig, f"League leaders — {label}",
+                subtitle=f"{season} regular season, per game (min. 20 GP)",
+                height=max(440, 34 * top_n + 150))
     top = df.iloc[-1]
     return ChartResult(fig, f"Leader: {top['player_name']} ({top['val']:.2f}).")
 
@@ -254,15 +332,27 @@ def _standings(params: dict) -> ChartResult:
         raise ValueError(f"No standings for {season}.")
 
     df = df.iloc[::-1]
-    fig = go.Figure(go.Bar(
-        x=df["wins"], y=df["team"], orientation="h", name="Wins",
-        marker_color=["#1f77b4" if c == "East" else "#ff7f0e"
-                      for c in df["conference"]],
-        text=[f"{w}-{l}" for w, l in zip(df["wins"], df["losses"])],
-        textposition="outside"))
-    title = f"{conf.capitalize()} standings" if conf else "NBA standings (East blue / West orange)"
-    fig.update_layout(title=f"{title}, {season}", xaxis_title="Wins",
-                      height=max(500, 26 * len(df)))
+    fig = go.Figure()
+    for conference, color in (("East", PALETTE["accent2"]),
+                              ("West", PALETTE["accent"])):
+        sub = df[df["conference"] == conference]
+        if sub.empty:
+            continue
+        fig.add_trace(go.Bar(
+            x=sub["wins"], y=sub["team"], orientation="h", name=conference,
+            marker=dict(color=color, opacity=0.9),
+            text=[f"{w}–{l}" for w, l in zip(sub["wins"], sub["losses"])],
+            textposition="outside", textfont=dict(size=12, color=PALETTE["ink"]),
+            cliponaxis=False,
+            customdata=sub["playoff_rank"],
+            hovertemplate="%{y}: %{text} (seed %{customdata})<extra></extra>"))
+    fig.update_xaxes(range=[0, df["wins"].max() * 1.15], title_text="Wins")
+    fig.update_yaxes(tickfont=dict(size=12.5, color=PALETTE["ink"]),
+                     gridcolor="rgba(0,0,0,0)",
+                     categoryorder="array", categoryarray=df["team"].tolist())
+    title = f"{conf.capitalize()}ern Conference" if conf else "NBA standings"
+    theme.style(fig, title, subtitle=f"{season} regular season",
+                height=max(520, 27 * len(df) + 150))
     best = df.iloc[-1]
     return ChartResult(fig, f"Best record: {best['team']} ({best['wins']}-{best['losses']}).")
 
@@ -284,21 +374,32 @@ def _team_stat_trend(params: dict) -> ChartResult:
     if df.empty:
         raise ValueError(f"No games for {t.full_name} in {season}.")
 
+    avg = df["val"].mean()
     fig = go.Figure()
-    fig.add_trace(go.Scatter(x=df["game_date"], y=df["val"], mode="markers",
-                             name="Per game", text=df["matchup"] + " (" + df["wl"] + ")"))
-    fig.add_trace(go.Scatter(x=df["game_date"], y=df["val"].rolling(window).mean(),
-                             mode="lines", name=f"{window}-game avg",
-                             line=dict(width=3)))
-    fig.update_layout(title=f"{t.full_name} — {label}, {season}",
-                      xaxis_title="Game date", yaxis_title=label)
-    return ChartResult(fig, f"{len(df)} games; avg {df['val'].mean():.2f} {label}.")
+    fig.add_trace(go.Scatter(
+        x=df["game_date"], y=df["val"], mode="markers", name="Per game",
+        marker=dict(
+            color=[PALETTE["made"] if wl == "W" else PALETTE["missed"]
+                   for wl in df["wl"]],
+            size=6.5, opacity=0.65),
+        text=df["matchup"] + " (" + df["wl"] + ")",
+        hovertemplate="%{text} · %{x|%b %d}<br>%{y} " + label + "<extra></extra>"))
+    if len(df) > window:
+        fig.add_trace(go.Scatter(
+            x=df["game_date"], y=df["val"].rolling(window).mean(),
+            mode="lines", name=f"{window}-game average",
+            line=dict(color=PALETTE["accent"], width=3.5,
+                      shape="spline", smoothing=0.6)))
+    fig.update_yaxes(title_text=label, tickformat=".0%" if _is_pct(stat) else None)
+    theme.style(fig, f"{t.full_name} — {label}",
+                subtitle=f"{season} regular season · green dots wins, red losses")
+    return ChartResult(fig, f"{len(df)} games; avg {avg:.2f} {label}.")
 
 
 CATALOG: dict[str, Template] = {t.id: t for t in [
     Template("player_stat_trend",
              "Line chart of one player's stat game-by-game across a season, "
-             "optional rolling average. Use for 'how has X been scoring lately'.",
+             "with rolling average. Use for 'how has X been scoring lately'.",
              ["player"], _player_stat_trend, ["season", "stat", "rolling_window"]),
     Template("player_comparison",
              "Compare 2+ players on one stat. With a season: bar chart of that "
@@ -328,7 +429,7 @@ CATALOG: dict[str, Template] = {t.id: t for t in [
              [], _standings, ["season", "conference"]),
     Template("team_stat_trend",
              "Line chart of one team's stat game-by-game across a season "
-             "with rolling average.",
+             "with rolling average; dots colored by win/loss.",
              ["team"], _team_stat_trend, ["season", "stat", "rolling_window"]),
 ]}
 
