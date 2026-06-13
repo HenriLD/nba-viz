@@ -8,125 +8,138 @@ app_port: 7860
 pinned: false
 ---
 
-# nba-viz
+# 🏀 nba-viz — ask for NBA charts in plain English
 
-Ask for NBA charts in plain English. A small LLM (via OpenRouter) maps your
-question onto a catalog of pre-built chart templates; the server runs
-parameterized SQL against a Postgres database that syncs daily from
-stats.nba.com, and renders Plotly charts in a chat UI.
+**[Try it live →](https://henrild-nba-viz.hf.space)**
 
-```
-question ──> small model picks template + params ──> validated SQL ──> Plotly chart
-                 (OpenRouter tool call)              (Postgres, Neon free tier)
-```
+Type a basketball question, get an interactive chart. No dropdowns, no query
+builder — just ask:
 
-The model never writes SQL or chart code — it makes exactly one tool call
-(`render_chart`) with an enum-constrained template ID and slot-filled params.
-Player/team names are fuzzy-matched server-side so the model doesn't need
-exact spellings. This is what makes cheap models (Kimi, Qwen, Mistral) viable.
+- *"Show me Steph Curry's shot chart this season"*
+- *"Jokic vs Embiid scoring by season"*
+- *"Who leads the league in assists?"*
+- *"How does SGA shoot against tight defense compared to wide open?"*
+- *"Where does Tatum like to shoot from?"*
+- *"Warriors three-point shooting trend with a 10-game rolling average"*
 
-## Stack (free-tier-only, except model tokens)
+## What it can show
 
-| Layer | Choice |
+| Ask about... | You get |
 |---|---|
-| Data source | stats.nba.com via [`nba_api`](https://github.com/swar/nba_api) |
-| Database | Postgres — [Neon](https://neon.tech) free tier (~0.5 GB, 5 seasons fits) |
-| Daily sync | GitHub Actions cron (`.github/workflows/daily-sync.yml`), local fallback |
-| Backend + agent | FastAPI + OpenRouter (OpenAI-compatible tool calling) |
-| Charts | Plotly (server builds figure JSON, browser renders with Plotly.js) |
-| Hosting | Hugging Face Spaces (Docker) or Render free tier |
+| A player's scoring, rebounds, assists... over a season | Game-by-game trend line with rolling average |
+| Two or more players head-to-head | Season-average comparison (one season or career arc) |
+| Shot selection | Make/miss shot chart on a drawn court |
+| Hot zones | Shot-density heatmap |
+| Shooting vs. defensive pressure | FG% / eFG% split by closest-defender distance |
+| League leaders in any stat | Top-N leaderboard (min. 20 games) |
+| The playoff race | Standings by conference |
+| Team form | Team stat trend with rolling average |
 
-## Setup
+Charts are fully interactive (hover for game details, zoom, pan) and the data
+covers the **last 5 NBA seasons** — regular season and playoffs — refreshed daily.
 
-1. **Database** — create a free Neon project, then:
-   ```sh
-   psql "$DATABASE_URL" -f db/schema.sql
-   ```
-2. **Environment** — create a `.env` file in the repo root:
-   ```ini
-   DATABASE_URL=postgresql+psycopg://user:pass@host/db?sslmode=require
-   OPENROUTER_API_KEY=sk-or-v1-...
-   OPENROUTER_MODEL=moonshotai/kimi-k2
-   ```
-3. **Install**:
-   ```sh
-   python -m venv .venv && .venv\Scripts\activate   # Windows
-   pip install -r requirements.txt
-   ```
-4. **Backfill** (one-time, ~10–20 min for 5 seasons — run from a home
-   connection, see "Where to run ingest" below):
-   ```sh
-   python -m ingest.backfill --n 5
-   ```
-5. **Run**:
-   ```sh
-   uvicorn app.main:app --reload
-   ```
-   Open http://localhost:8000 and ask: *"Show me Curry's shot chart this season"*.
+## How it works
 
-## Where to run ingest (important)
-
-**stats.nba.com blocks many cloud/datacenter IPs.** The GitHub Actions cron
-is configured as the primary daily sync, but if it fails with persistent
-timeouts, run the identical script from a residential IP instead — e.g.
-Windows Task Scheduler running `python -m ingest.sync` daily at 7am, pointed
-at the same cloud `DATABASE_URL`. Everything downstream stays cloud-hosted;
-only the scraper needs a friendly IP.
-
-## Data scope and honest limitations
-
-- **Stored**: ~5 seasons of player/team game logs, league-wide shot-level
-  x/y coordinates (~220k shots/season), standings, and shooting splits by
-  closest-defender distance.
-- **Defender data is aggregate-only.** Raw player-movement tracking has not
-  been public since 2016. "How does X shoot against tight defense" works
-  (0–2ft / 2–4ft / 4–6ft / 6+ft buckets); "show possessions where two
-  defenders collapsed" does not and cannot.
-- No play-by-play (would blow the free Postgres tier); add later via
-  parquet-on-R2 + DuckDB if wanted.
-
-## Picking the model
-
-```sh
-python -m eval.run_eval --models moonshotai/kimi-k2 qwen/qwen-2.5-72b-instruct mistralai/mistral-small-3.1-24b-instruct
+```
+your question ──> small LLM picks a chart template + fills slots
+                        │  (one strict-schema tool call — the model never
+                        │   writes SQL or chart code)
+                        ▼
+              validated, parameterized SQL ──> Postgres (5 seasons of
+                        │                      game logs + 1.1M shot locations)
+                        ▼
+                  Plotly figure ──> rendered in your browser
 ```
 
-Scores each model on 16 canned questions (template + param accuracy, no DB
-needed). Set the winner as `OPENROUTER_MODEL`. A typical chat query is 2
-model calls over ~1.5k tokens — fractions of a cent on any of these.
+The interesting design constraint: this runs on a *cheap* model (Kimi K2 via
+OpenRouter — fractions of a cent per question). Small models are unreliable at
+writing SQL, but very good at picking one of 8 templates and filling in slots.
+Player names are fuzzy-matched server-side ("steph", "curry", "Stephen Curry"
+all work), stats come from a fixed whitelist, and every parameter is validated
+before any query runs.
 
-## Deploy (Hugging Face Spaces)
+Data is pulled daily from stats.nba.com (via [`nba_api`](https://github.com/swar/nba_api))
+into a free-tier Neon Postgres database. The whole stack runs on free hosting —
+the only operating cost is model tokens.
 
-GitHub (`origin`) is staging; the HF Space (`hf`) is production. Push to
-GitHub freely; deploy to HF only after testing locally:
+## Honest limitations
+
+- **No raw player-tracking data.** The NBA stopped publishing raw movement
+  coordinates in 2016. Defender questions are answered from official aggregate
+  splits (shooting by closest-defender distance: 0–2 ft / 2–4 ft / 4–6 ft /
+  6+ ft) — you can't ask for things like "possessions where two defenders
+  collapsed."
+- **5-season window.** Career-arc questions reach back ~5 years, not to 1996.
+- **8 chart types.** If your question doesn't map to a template, the bot says
+  so and suggests what it *can* show instead of inventing data.
+
+## Run your own
+
+You need: Python 3.12+, a free [Neon](https://neon.tech) Postgres database,
+and an [OpenRouter](https://openrouter.ai) API key (~any cheap tool-calling
+model works).
 
 ```sh
-uvicorn app.main:app --reload     # test at localhost:8000
-git push origin main              # staging — always safe
-git push hf main                  # production deploy — triggers Space rebuild
+git clone https://github.com/HenriLD/nba-viz && cd nba-viz
+python -m venv .venv && .venv\Scripts\activate    # Windows; use bin/activate on Unix
+pip install -r requirements.txt
+
+# create the schema
+psql "$DATABASE_URL" -f db/schema.sql
 ```
 
-First-time Space setup:
-1. Create a Space → Docker SDK (the `Dockerfile` serves on port 7860).
-2. Add `DATABASE_URL`, `OPENROUTER_API_KEY`, `OPENROUTER_MODEL` as Space secrets.
-3. `git remote add hf https://huggingface.co/spaces/<user>/<space>` and push.
+Create a `.env` in the repo root:
 
-GitHub repo secrets needed for the cron: `DATABASE_URL`.
+```ini
+DATABASE_URL=postgresql+psycopg://user:pass@host/db?sslmode=require
+OPENROUTER_API_KEY=sk-or-v1-...
+OPENROUTER_MODEL=moonshotai/kimi-k2
+```
+
+Then backfill and run:
+
+```sh
+python -m ingest.backfill --n 5      # one-time, ~10-20 min for 5 seasons
+uvicorn app.main:app --reload        # open http://localhost:8000
+```
+
+> **⚠️ Run the backfill from a home connection.** stats.nba.com blocks most
+> cloud/datacenter IPs. The daily incremental sync (`python -m ingest.sync`,
+> ~11 requests) is scheduled via GitHub Actions
+> (`.github/workflows/daily-sync.yml`, needs a `DATABASE_URL` repo secret) —
+> if Actions runners get blocked too, run the same command from any home
+> machine on a scheduler.
+
+To deploy the app itself, any Docker host works — the included `Dockerfile`
+serves on port 7860 (Hugging Face Spaces' default). Set the same three
+environment variables as secrets on the host.
+
+## Picking a model
+
+The agent is provider-agnostic (any OpenRouter slug with tool calling). An
+eval harness scores candidates on 16 questions for template + parameter
+accuracy, no database required:
+
+```sh
+python -m eval.run_eval --models moonshotai/kimi-k2 qwen/qwen-2.5-72b-instruct
+```
 
 ## Project layout
 
 ```
-core/        shared: db engine + upserts, stat whitelist, season helpers
+core/        db engine + idempotent upserts, stat whitelist, season helpers
 db/          schema.sql
-ingest/      nba_api wrappers, daily sync, one-time backfill
-app/         FastAPI, agent loop, template catalog, court drawing, chat UI
-eval/        model comparison harness (16 questions)
+ingest/      nba_api wrappers, incremental daily sync, one-time backfill
+app/         FastAPI, agent loop, chart templates, court drawing, chat UI
+eval/        model comparison harness
 ```
 
-## Adding a chart template
+### Adding a chart template
 
 1. Write a `_my_template(params) -> ChartResult` function in
-   `app/templates.py` (SQL + Plotly builder).
-2. Register it in `CATALOG` with a description written *for the model* —
-   say when to use it, not just what it is.
-3. Add an eval question to `eval/questions.json` and re-run the eval.
+   [`app/templates.py`](app/templates.py) (parameterized SQL + Plotly builder).
+2. Register it in `CATALOG` with a description written *for the model* — say
+   when to use it, not just what it is.
+3. Add a case to [`eval/questions.json`](eval/questions.json) and re-run the eval.
+
+PRs welcome — more templates, better court drawing, more seasons.
