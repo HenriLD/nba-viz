@@ -97,9 +97,19 @@ model calls over ~1.5k tokens — fractions of a cent on any of these.
 
 ## Deploy (Hugging Face Spaces)
 
-1. Create a Space → Docker SDK.
-2. Push this repo to the Space (the `Dockerfile` serves on port 7860).
-3. Add `DATABASE_URL`, `OPENROUTER_API_KEY`, `OPENROUTER_MODEL` as Space secrets.
+GitHub (`origin`) is staging; the HF Space (`hf`) is production. Push to
+GitHub freely; deploy to HF only after testing locally:
+
+```sh
+uvicorn app.main:app --reload     # test at localhost:8000
+git push origin main              # staging — always safe
+git push hf main                  # production deploy — triggers Space rebuild
+```
+
+First-time Space setup:
+1. Create a Space → Docker SDK (the `Dockerfile` serves on port 7860).
+2. Add `DATABASE_URL`, `OPENROUTER_API_KEY`, `OPENROUTER_MODEL` as Space secrets.
+3. `git remote add hf https://huggingface.co/spaces/<user>/<space>` and push.
 
 GitHub repo secrets needed for the cron: `DATABASE_URL`.
 
