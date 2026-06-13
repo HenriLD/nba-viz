@@ -18,7 +18,7 @@ from app.entities import resolve_player, resolve_team
 from app.result import ChartResult
 from app.theme import PALETTE, SERIES
 from core.db import query_df
-from core.seasons import current_season, validate_season
+from core.seasons import latest_season, validate_season
 from core.stats import RATIO_STATS, SIMPLE_STATS, stat_label, validate_stat
 
 
@@ -32,7 +32,7 @@ class Template:
 
 
 def _season(params: dict) -> str:
-    return validate_season(params.get("season") or current_season())
+    return validate_season(params.get("season") or latest_season())
 
 
 def _stat_select(stat: str, agg: bool) -> str:

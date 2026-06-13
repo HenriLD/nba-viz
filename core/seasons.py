@@ -1,5 +1,27 @@
 """Season string helpers. NBA seasons are formatted '2024-25'."""
 from datetime import date
+from functools import lru_cache
+
+
+@lru_cache(maxsize=1)
+def available_seasons() -> list[str]:
+    """Seasons actually present in the database, ascending. Cached for the
+    process lifetime (a new season only appears after a restart/redeploy)."""
+    from core.db import query_df
+    df = query_df("SELECT DISTINCT season FROM player_game_logs ORDER BY season")
+    return df["season"].tolist()
+
+
+def latest_season() -> str:
+    """The current season grounded in the data: the newest season we actually
+    hold rows for. Falls back to the calendar if the DB is empty/unreachable."""
+    try:
+        seas = available_seasons()
+        if seas:
+            return seas[-1]
+    except Exception:  # noqa: BLE001 — DB not ready (e.g. unit context)
+        pass
+    return current_season()
 
 
 def current_season(today: date | None = None) -> str:

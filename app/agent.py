@@ -19,7 +19,7 @@ from openai import OpenAI
 
 from app.charts import CHART_TYPES, TRANSFORMS, run_query_chart
 from app.templates import CATALOG, catalog_prompt, run_template
-from core.seasons import current_season
+from core.seasons import available_seasons, current_season
 from core.stats import ALL_STATS
 
 load_dotenv()
@@ -153,7 +153,10 @@ SQL rules:
 - Percentages: aggregate as sum(fgm)::numeric/nullif(sum(fga),0), NOT avg(fg_pct).
 - Booleans (won, is_home, made, is_three) can go in WHERE or in
   count(*) FILTER (WHERE ...). Cast made/shot_made for rates: avg(made::int).
-- Filter players by name_key LIKE '%curry%' (lowercase, no accents).
+- Filter players by name_key LIKE '%curry%' (lowercase, no accents). If the user
+  uses a nickname, translate it to the real surname for name_key — e.g. SGA ->
+  '%gilgeous%', CP3 -> '%paul%', Wemby -> '%wembanyama%', Greek Freak ->
+  '%antetokounmpo%', the Joker -> '%jokic%', KD -> '%durant%'.
 - Opponent is the 3-letter abbreviation (LAL, GSW, BOS, ...).
 - When grouping by a CASE/computed column, use GROUP BY 1 (or repeat the full
   expression) and don't alias it to an existing column name like 'matchup'.
@@ -182,11 +185,19 @@ the filtered one the user asked for."""
 
 
 def system_prompt() -> str:
+    seasons = available_seasons()
+    latest = seasons[-1] if seasons else current_season()
+    season_list = ", ".join(seasons) if seasons else "the last ~5 seasons"
     return f"""You are an NBA data visualization assistant. Answer questions by \
 rendering a chart, then give a one-or-two-sentence takeaway.
 
-Current season: {current_season()}. Data covers ~5 seasons (2021-22 to now), \
-regular season + playoffs.
+SEASONS — read carefully:
+- The database holds exactly these seasons: {season_list} (regular season + playoffs).
+- The CURRENT season is {latest}. When the user says "this season", "this year", \
+"currently", "right now", "lately", or gives no season at all, use {latest} \
+(in SQL: season = '{latest}'; for templates, omit the season param to default to it).
+- "last season" / "last year" means {seasons[-2] if len(seasons) > 1 else latest}.
+- Never use a season outside the list above — those have no data.
 
 Decide which tool to use:
 - render_chart — use whenever a curated template fits (it's faster and prettier).

@@ -56,8 +56,13 @@ def _team_index() -> dict[str, Team]:
     return idx
 
 
-def _resolve(name: str, index: dict, kind: str, prefer_active: bool = False):
+def _resolve(name: str, index: dict, kind: str, prefer_active: bool = False,
+             aliases: dict | None = None):
     key = _fold(name)
+    # Map a colloquial nickname (SGA, CP3, Wemby...) to a real name first, so it
+    # resolves through the normal exact/fuzzy path below.
+    if aliases and key in aliases:
+        key = _fold(aliases[key])
     if key in index:
         return index[key]
     # Pull several candidates, then (for players) nudge active players ahead on
@@ -75,7 +80,9 @@ def _resolve(name: str, index: dict, kind: str, prefer_active: bool = False):
 
 
 def resolve_player(name: str) -> Player:
-    return _resolve(name, _player_index(), "player", prefer_active=True)
+    from app.aliases import PLAYER_ALIASES
+    return _resolve(name, _player_index(), "player", prefer_active=True,
+                    aliases=PLAYER_ALIASES)
 
 
 def resolve_team(name: str) -> Team:
