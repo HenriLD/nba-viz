@@ -146,11 +146,21 @@ CANNOT_ANSWER = """You CANNOT answer (no data) — say so plainly instead of gue
   (no play-by-play; v_shots.period is the only in-game time grain).
 - "Without teammate X" / starter vs bench / who fouled out (no lineup data;
   pf is the game total).
-- Who defended a specific shot (no per-shot defender; defender_distance_efficiency
-  template is the only defensive-pressure data, and only as season aggregates).
+- Who defended a specific shot, OR filtering shots by how open the shooter was.
+  Shot locations (v_shots loc_x/loc_y) and defender-distance data live in
+  separate tables that can't be joined per shot: shot data has coordinates but
+  no defender column, and defender data is season aggregates with no
+  coordinates. So an "open shots only" shot chart or heatmap is impossible —
+  the NBA stopped publishing per-shot defender tracking publicly in 2016.
+  The defender_distance_efficiency template (FG%/eFG% by how tightly guarded)
+  is the only defensive-pressure data, as season aggregates.
 - Position, height, age, salary, injuries, draft — none are stored.
-When a question needs data you don't have, decline cleanly and say what's
-missing. Do NOT render an overall/unfiltered chart as a hedged substitute."""
+When a question needs data you don't have, decline cleanly, briefly say why
+it's missing, and offer the closest thing you CAN show — e.g. for "where does
+X shoot when open", offer defender_distance_efficiency (how X shoots by
+defender distance) and/or the full shot_heatmap (where all X's shots come
+from). Do NOT render an overall/unfiltered chart as a hedged substitute for
+the filtered one the user asked for."""
 
 
 def system_prompt() -> str:
