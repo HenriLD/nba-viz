@@ -15,16 +15,11 @@ import plotly.graph_objects as go
 
 from app import court, theme
 from app.entities import resolve_player, resolve_team
+from app.result import ChartResult
 from app.theme import PALETTE, SERIES
 from core.db import query_df
 from core.seasons import current_season, validate_season
 from core.stats import RATIO_STATS, SIMPLE_STATS, stat_label, validate_stat
-
-
-@dataclass
-class ChartResult:
-    figure: go.Figure
-    summary: str  # short text fed back to the model (never the full data)
 
 
 @dataclass
@@ -396,6 +391,107 @@ def _team_stat_trend(params: dict) -> ChartResult:
     return ChartResult(fig, f"{len(df)} games; avg {avg:.2f} {label}.")
 
 
+ZONE_ORDER = ["Restricted Area", "In The Paint (Non-RA)", "Mid-Range",
+              "Left Corner 3", "Right Corner 3", "Above the Break 3"]
+
+
+def _shot_zone_breakdown(params: dict) -> ChartResult:
+    p = resolve_player(params["player"])
+    season = _season(params)
+    df = query_df("""
+        SELECT shot_zone_basic AS zone,
+               count(*) AS att,
+               avg(shot_made_flag::float) AS fg_pct
+        FROM shots
+        WHERE player_id = :pid AND season = :season
+          AND season_type = 'Regular Season' AND loc_y < 420
+        GROUP BY shot_zone_basic
+    """, {"pid": p.player_id, "season": season})
+    if df.empty:
+        raise ValueError(f"No shots found for {p.full_name} in {season}.")
+
+    df = df.set_index("zone").reindex(ZONE_ORDER).dropna(how="all").reset_index()
+    df["share"] = df["att"] / df["att"].sum()
+
+    fig = go.Figure()
+    fig.add_trace(go.Bar(
+        x=df["zone"], y=df["share"], name="Shot share",
+        marker=dict(color=PALETTE["accent"], opacity=0.92),
+        text=[f"{s:.0%}" for s in df["share"]], textposition="outside",
+        textfont=dict(size=12, color=PALETTE["ink"]), cliponaxis=False,
+        customdata=df["att"],
+        hovertemplate="%{x}<br>%{y:.1%} of attempts (%{customdata:.0f} shots)"
+                      "<extra></extra>"))
+    fig.add_trace(go.Scatter(
+        x=df["zone"], y=df["fg_pct"], name="FG% (right)", yaxis="y2",
+        mode="lines+markers", line=dict(color=PALETTE["accent2"], width=3),
+        marker=dict(size=9),
+        hovertemplate="%{x}<br>%{y:.1%} FG%<extra></extra>"))
+    fig.update_layout(
+        yaxis=dict(title="Share of attempts", tickformat=".0%"),
+        yaxis2=dict(title="FG%", tickformat=".0%", overlaying="y",
+                    side="right", showgrid=False,
+                    tickfont=dict(color=PALETTE["accent2"]),
+                    title_font=dict(color=PALETTE["accent2"]), rangemode="tozero"))
+    theme.style(fig, f"{p.full_name} — shot diet by zone",
+                subtitle=f"{season} regular season · bars = volume, line = accuracy")
+    return ChartResult(fig, "; ".join(
+        f"{r.zone}: {r.share:.0%} of shots at {r.fg_pct:.1%}"
+        for r in df.itertuples()))
+
+
+SPLITS = {
+    "home_away": ("CASE WHEN matchup LIKE '%vs.%' THEN 'Home' ELSE 'Away' END",
+                  "home vs. away"),
+    "win_loss": ("CASE WHEN wl = 'W' THEN 'In wins' ELSE 'In losses' END",
+                 "in wins vs. losses"),
+    "rest": ("CASE WHEN gap = 1 THEN 'Back-to-back' "
+             "WHEN gap >= 3 THEN '3+ days rest' ELSE '1-2 days rest' END",
+             "by days of rest"),
+}
+
+
+def _player_split(params: dict) -> ChartResult:
+    p = resolve_player(params["player"])
+    season = _season(params)
+    stat = validate_stat(params.get("stat", "pts"))
+    split = params.get("split", "home_away")
+    if split not in SPLITS:
+        raise ValueError(f"split must be one of {list(SPLITS)}.")
+    label = stat_label(stat)
+    case_expr, split_desc = SPLITS[split]
+
+    df = query_df(f"""
+        WITH g AS (
+            SELECT *,
+                   game_date - lag(game_date) OVER (ORDER BY game_date) AS gap
+            FROM player_game_logs
+            WHERE player_id = :pid AND season = :season
+              AND season_type = 'Regular Season'
+        )
+        SELECT {case_expr} AS split, count(*) AS gp,
+               {_stat_select(stat, agg=True)} AS val
+        FROM g GROUP BY 1 ORDER BY val DESC
+    """, {"pid": p.player_id, "season": season})
+    if df.empty:
+        raise ValueError(f"No games found for {p.full_name} in {season}.")
+
+    fig = go.Figure(go.Bar(
+        x=df["split"], y=df["val"],
+        marker=dict(color=SERIES[:len(df)], opacity=0.92),
+        text=[_fmt(v, stat) for v in df["val"]], textposition="outside",
+        textfont=dict(size=15, color=PALETTE["ink"]), cliponaxis=False,
+        customdata=df["gp"],
+        hovertemplate="%{x}: %{y} (%{customdata} games)<extra></extra>"))
+    fig.update_yaxes(title_text=f"{label} per game",
+                     tickformat=".0%" if _is_pct(stat) else None,
+                     range=[0, float(df["val"].max()) * 1.18])
+    theme.style(fig, f"{p.full_name} — {label} {split_desc}",
+                subtitle=f"{season} regular season")
+    return ChartResult(fig, "; ".join(
+        f"{r.split}: {_fmt(r.val, stat)} ({r.gp} games)" for r in df.itertuples()))
+
+
 CATALOG: dict[str, Template] = {t.id: t for t in [
     Template("player_stat_trend",
              "Line chart of one player's stat game-by-game across a season, "
@@ -431,6 +527,17 @@ CATALOG: dict[str, Template] = {t.id: t for t in [
              "Line chart of one team's stat game-by-game across a season "
              "with rolling average; dots colored by win/loss.",
              ["team"], _team_stat_trend, ["season", "stat", "rolling_window"]),
+    Template("shot_zone_breakdown",
+             "A player's shot diet: bar of attempt share per court zone "
+             "(restricted area, paint, mid-range, corner 3s, above-break 3) "
+             "with an FG% line. Use for 'shot distribution / where does X get "
+             "shots / shot profile by zone'.",
+             ["player"], _shot_zone_breakdown, ["season"]),
+    Template("player_split",
+             "Bar chart comparing one player's stat across a built-in split: "
+             "'home_away', 'win_loss', or 'rest' (back-to-back vs rested). Use "
+             "for 'X in wins vs losses', 'X home vs away', 'X on back-to-backs'.",
+             ["player"], _player_split, ["season", "stat", "split"]),
 ]}
 
 

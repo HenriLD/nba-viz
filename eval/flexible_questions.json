@@ -1,0 +1,10 @@
+[
+  {"q": "How does LeBron score at home vs on the road this season?", "expect_figure": true},
+  {"q": "Compare the Celtics and Nuggets average point margin this season", "expect_figure": true},
+  {"q": "Show me the Thunder win percentage by month this season", "expect_figure": true},
+  {"q": "Which team has the best record on the second night of back-to-backs?", "expect_figure": true},
+  {"q": "How does Curry's scoring compare against the Lakers vs everyone else?", "expect_figure": true},
+  {"q": "Who scored the most points in a single game this season?", "expect_figure": true},
+  {"q": "How does Jokic perform in clutch time, the final 2 minutes of close games?", "expect_figure": false},
+  {"q": "How does Tatum play when Jaylen Brown is injured and out?", "expect_figure": false}
+]

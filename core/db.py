@@ -1,5 +1,7 @@
-"""Shared database access: engine, query helper, idempotent upserts."""
+"""Shared database access: engine, query helper, idempotent upserts, and a
+sandboxed read-only executor for model-authored SQL."""
 import os
+import re
 from functools import lru_cache
 
 import pandas as pd
@@ -24,6 +26,55 @@ def query_df(sql: str, params: dict | None = None) -> pd.DataFrame:
 def execute(sql: str, params: dict | None = None) -> None:
     with get_engine().begin() as conn:
         conn.execute(text(sql), params or {})
+
+
+# --------------------------------------------------------------- safe SELECT
+
+class UnsafeQuery(ValueError):
+    pass
+
+
+# Whole-word statement keywords that must never appear in model-authored SQL.
+_FORBIDDEN = re.compile(
+    r"\b(insert|update|delete|drop|alter|create|grant|revoke|truncate|copy|"
+    r"vacuum|reindex|cluster|lock|call|do|merge|set|reset|prepare|execute|"
+    r"into|nextval|setval|pg_sleep|dblink|pg_read_file|lo_import|lo_export)\b",
+    re.IGNORECASE)
+
+
+def _validate_select(sql: str) -> str:
+    s = sql.strip().rstrip(";").strip()
+    if not s:
+        raise UnsafeQuery("Empty query.")
+    if ";" in s:
+        raise UnsafeQuery("Only a single statement is allowed (no ';').")
+    if "--" in s or "/*" in s:
+        raise UnsafeQuery("SQL comments are not allowed.")
+    if not re.match(r"(?is)^\s*(select|with)\b", s):
+        raise UnsafeQuery("Only SELECT / WITH queries are allowed.")
+    if _FORBIDDEN.search(s):
+        raise UnsafeQuery("Query contains a disallowed keyword "
+                          "(only read-only SELECTs are permitted).")
+    return s
+
+
+def safe_select(sql: str, max_rows: int = 1000, timeout_ms: int = 6000) -> pd.DataFrame:
+    """Run model-authored SQL with several independent guardrails:
+
+    1. Keyword/structure validation (single read-only SELECT, no comments).
+    2. The statement is wrapped as a subquery with a hard LIMIT — a non-SELECT
+       or multi-statement payload fails to parse here, and the row count is
+       capped regardless of what the model wrote.
+    3. The transaction is READ ONLY, so even a novel bypass cannot mutate data.
+    4. statement_timeout aborts a runaway query.
+    """
+    cleaned = _validate_select(sql)
+    wrapped = f"SELECT * FROM (\n{cleaned}\n) AS _q LIMIT {int(max_rows)}"
+    with get_engine().connect() as conn:
+        with conn.begin():
+            conn.execute(text("SET TRANSACTION READ ONLY"))
+            conn.execute(text(f"SET LOCAL statement_timeout = {int(timeout_ms)}"))
+            return pd.read_sql(text(wrapped), conn)
 
 
 @lru_cache(maxsize=32)

@@ -30,5 +30,15 @@
   {"q": "Who are the best three point shooters this year?",
    "template_id": "league_leaders", "params": {"stat": "fg3_pct"}},
   {"q": "Kevin Durant's shot selection in the 2021-22 season",
-   "template_id": "shot_chart", "params": {"player": "durant", "season": "2021-22"}}
+   "template_id": "shot_chart", "params": {"player": "durant", "season": "2021-22"}},
+  {"q": "What's Curry's shot distribution by zone?",
+   "template_id": "shot_zone_breakdown", "params": {"player": "curry"}},
+  {"q": "Where does Embiid get his shots from on the floor?",
+   "template_id": "shot_zone_breakdown", "params": {"player": "embiid"}},
+  {"q": "How does Luka score in wins vs losses?",
+   "template_id": "player_split", "params": {"player": "luka", "split": "win_loss"}},
+  {"q": "Is Tatum better at home or on the road?",
+   "template_id": "player_split", "params": {"player": "tatum", "split": "home_away"}},
+  {"q": "How does Giannis play on back-to-backs?",
+   "template_id": "player_split", "params": {"player": "giannis", "split": "rest"}}
 ]

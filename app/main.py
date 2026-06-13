@@ -54,9 +54,10 @@ def gallery():
     page. Hits the DB but never the LLM."""
     from fastapi.responses import HTMLResponse
 
+    from app.charts import run_query_chart
     from app.templates import run_template
 
-    cases = [
+    template_cases = [
         ("player_stat_trend", {"player": "stephen curry", "stat": "pts",
                                "rolling_window": 10}),
         ("player_comparison", {"players": ["jokic", "embiid", "luka doncic"],
@@ -70,14 +71,39 @@ def gallery():
         ("standings", {}),
         ("team_stat_trend", {"team": "warriors", "stat": "fg3_pct",
                              "rolling_window": 10}),
+        ("shot_zone_breakdown", {"player": "stephen curry"}),
+        ("player_split", {"player": "luka doncic", "stat": "pts", "split": "win_loss"}),
+        ("player_split", {"player": "nikola jokic", "stat": "reb", "split": "rest"}),
+    ]
+    query_cases = [
+        ("Curry: home vs away 3P% this season", {
+            "sql": "SELECT CASE WHEN is_home THEN 'Home' ELSE 'Away' END AS loc, "
+                   "sum(fg3m)::numeric/nullif(sum(fg3a),0) AS fg3_pct "
+                   "FROM v_player_games WHERE name_key LIKE '%curry%' "
+                   "AND season='2025-26' AND season_type='Regular Season' GROUP BY 1",
+            "chart_type": "bar", "x": "loc", "y": "fg3_pct",
+            "title": "Curry — 3P% home vs away"}),
+        ("Lakers margin vs each opponent", {
+            "sql": "SELECT opponent, avg(margin) AS avg_margin FROM v_team_games "
+                   "WHERE team='LAL' AND season='2025-26' "
+                   "AND season_type='Regular Season' GROUP BY opponent "
+                   "ORDER BY avg_margin DESC",
+            "chart_type": "horizontal_bar", "x": "opponent", "y": "avg_margin",
+            "title": "Lakers — average margin by opponent, 2025-26"}),
     ]
     blocks = []
-    for tid, params in cases:
+    for tid, params in template_cases:
         try:
             fig = run_template(tid, params).figure
             blocks.append(f"<div class='chart'>{fig.to_html(full_html=False, include_plotlyjs=False, config={'responsive': True, 'displaylogo': False})}</div>")
         except Exception as e:  # noqa: BLE001 — QA page shows failures inline
             blocks.append(f"<div class='chart err'><b>{tid}</b> failed: {e}</div>")
+    for name, args in query_cases:
+        try:
+            fig = run_query_chart(args).figure
+            blocks.append(f"<div class='chart'>{fig.to_html(full_html=False, include_plotlyjs=False, config={'responsive': True, 'displaylogo': False})}</div>")
+        except Exception as e:  # noqa: BLE001
+            blocks.append(f"<div class='chart err'><b>query: {name}</b> failed: {e}</div>")
     return HTMLResponse(f"""<!DOCTYPE html><html><head>
 <script src="https://cdn.plot.ly/plotly-3.6.0.min.js"></script>
 <style>body{{background:#12161b;margin:0;padding:24px;font-family:Georgia,serif}}

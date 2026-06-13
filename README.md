@@ -34,6 +34,9 @@ builder — just ask:
 | League leaders in any stat | Top-N leaderboard (min. 20 games) |
 | The playoff race | Standings by conference |
 | Team form | Team stat trend with rolling average |
+| Shot diet by zone | Volume + accuracy per court zone |
+| Splits (home/away, wins/losses, rest) | Side-by-side bar comparison |
+| **Anything else** — custom periods, specific opponents, multi-condition filters | The model writes a sandboxed SQL query and picks a chart for it |
 
 Charts are fully interactive (hover for game details, zoom, pan) and the data
 covers the **last 5 NBA seasons** — regular season and playoffs — refreshed daily.
@@ -41,22 +44,36 @@ covers the **last 5 NBA seasons** — regular season and playoffs — refreshed 
 ## How it works
 
 ```
-your question ──> small LLM picks a chart template + fills slots
-                        │  (one strict-schema tool call — the model never
-                        │   writes SQL or chart code)
+your question ──> small LLM picks ONE of two tools:
+                  │
+                  ├─ render_chart  → a curated template + slot values
+                  │                  (fast, polished; covers common asks)
+                  │
+                  └─ query_chart   → a read-only SQL SELECT it writes itself,
+                                     mapped onto a generic chart
+                                     (custom periods, opponents, constraints)
                         ▼
-              validated, parameterized SQL ──> Postgres (5 seasons of
-                        │                      game logs + 1.1M shot locations)
-                        ▼
+              Postgres (5 seasons of logs + 1.2M shots, friendly views) ──>
                   Plotly figure ──> rendered in your browser
 ```
 
 The interesting design constraint: this runs on a *cheap* model (Kimi K2 via
-OpenRouter — fractions of a cent per question). Small models are unreliable at
-writing SQL, but very good at picking one of 8 templates and filling in slots.
-Player names are fuzzy-matched server-side ("steph", "curry", "Stephen Curry"
-all work), stats come from a fixed whitelist, and every parameter is validated
-before any query runs.
+OpenRouter — fractions of a cent per question). Two complementary paths keep it
+reliable:
+
+- **Templates** for the common 80% — the model just picks one of ~10 templates
+  and fills slots, which small models do very accurately (95% on our eval).
+- **Sandboxed SQL** for the long tail — the model writes a SELECT against
+  denormalized analysis views (with home/away, opponent, win, days-rest, and
+  margin precomputed). Modern small models write this SQL well and self-correct
+  from errors (100% on our flexible eval). Safety: the query runs in a
+  read-only transaction, single-statement, keyword-validated, row-capped, and
+  time-limited — it can only ever read.
+
+Player names are fuzzy-matched and diacritic-folded ("steph", "curry", "jokic"
+all resolve), stats come from a fixed whitelist, and the model is told plainly
+what the data *cannot* answer (clutch splits, lineups, injuries) so it declines
+instead of inventing.
 
 Data is pulled daily from stats.nba.com (via [`nba_api`](https://github.com/swar/nba_api))
 into a free-tier Neon Postgres database. The whole stack runs on free hosting —
@@ -84,8 +101,9 @@ git clone https://github.com/HenriLD/nba-viz && cd nba-viz
 python -m venv .venv && .venv\Scripts\activate    # Windows; use bin/activate on Unix
 pip install -r requirements.txt
 
-# create the schema
+# create the schema and the analysis views
 psql "$DATABASE_URL" -f db/schema.sql
+psql "$DATABASE_URL" -f db/analysis_views.sql
 ```
 
 Create a `.env` in the repo root:
@@ -121,18 +139,27 @@ eval harness scores candidates on 16 questions for template + parameter
 accuracy, no database required:
 
 ```sh
+# template selection + slot filling (cheap, no DB execution)
 python -m eval.run_eval --models moonshotai/kimi-k2 qwen/qwen-2.5-72b-instruct
+
+# end-to-end: the model writes SQL, it executes, a chart must render (or decline)
+python -m eval.run_eval --flexible --models moonshotai/kimi-k2
 ```
 
 ## Project layout
 
 ```
-core/        db engine + idempotent upserts, stat whitelist, season helpers
-db/          schema.sql
+core/        db engine + idempotent upserts + sandboxed safe_select,
+             stat whitelist, season helpers
+db/          schema.sql, analysis_views.sql (friendly views for the SQL path)
 ingest/      nba_api wrappers, incremental daily sync, one-time backfill
-app/         FastAPI, agent loop, chart templates, court drawing, chat UI
-eval/        model comparison harness
+app/         FastAPI, agent loop (two tools), chart templates, generic
+             query renderers (charts.py), court drawing, theme, chat UI
+eval/        model comparison harness (template + flexible/SQL modes)
 ```
+
+Visit `/gallery` while the server runs to render every template and a couple of
+query examples on one page — visual QA with no LLM calls.
 
 ### Adding a chart template
 
