@@ -54,11 +54,12 @@ def style(fig: go.Figure, title: str, subtitle: str | None = None,
                 text=subtitle or "",
                 font=dict(size=12.5, color=PALETTE["muted"], family=FONT),
             ),
-            x=0.04, xanchor="left", yanchor="top", pad=dict(b=12),
+            # Anchor to the top of the figure container so the title hugs the
+            # top of the card instead of floating centered in the top margin.
+            x=0.04, xanchor="left", y=0.97, yref="container", yanchor="top",
+            pad=dict(b=8),
         ),
-        # Roomy top band so the title/subtitle (left) and legend (right) never
-        # crowd each other or the plot.
-        margin=dict(l=58, r=30, t=112 if subtitle else 78, b=64),
+        margin=dict(l=58, r=30, t=92 if subtitle else 60, b=64),
         legend=dict(
             orientation="h", x=1, y=1.0, xanchor="right", yanchor="bottom",
             bgcolor="rgba(0,0,0,0)", font=dict(size=12, color=PALETTE["muted"]),
