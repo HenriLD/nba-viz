@@ -6,59 +6,76 @@
 <title>nba-viz — ask for NBA charts in plain English</title>
 <!-- Keep in sync with the plotly version in requirements.txt (python 6.8 = js 3.6) -->
 <script src="https://cdn.plot.ly/plotly-3.6.0.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,500;0,9..144,600;1,9..144,500&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
 <style>
   /* Palette mirrors app/theme.py — keep them in sync. */
   :root {
     --bg:#12161b; --card:#161c23; --panel:#181f26; --border:#232b34;
     --ink:#ece7dd; --muted:#8d97a1; --accent:#e8833a; --accent2:#45b8a4;
+    --sans:'IBM Plex Sans', system-ui, -apple-system, sans-serif;
+    --serif:'Fraunces', Georgia, serif;
   }
   * { box-sizing: border-box; }
   html { scroll-behavior: smooth; }
   body {
     margin:0; background:var(--bg); color:var(--ink);
-    font-family: Georgia, 'Times New Roman', serif;
+    font-family: var(--sans); font-size:15px; -webkit-font-smoothing:antialiased;
   }
-  /* Warm glow pinned to the viewport (not the document) so it never
-     stretches or bands as the chat grows. */
   body::before {
     content:''; position:fixed; inset:0; z-index:-1; pointer-events:none;
     background: radial-gradient(ellipse 80% 60% at 50% -12%,
                 rgba(232,131,58,0.07), transparent 70%);
-    transform-origin:50% 0;
-    animation: breathe 9s ease-in-out infinite;
+    transform-origin:50% 0; animation: breathe 9s ease-in-out infinite;
   }
-  @keyframes breathe {
-    0%,100% { opacity:.7;  transform:scale(1); }
-    50%     { opacity:1;   transform:scale(1.12); }
-  }
+  @keyframes breathe { 0%,100%{opacity:.7;transform:scale(1);} 50%{opacity:1;transform:scale(1.12);} }
 
   header {
-    padding:20px 28px 16px; display:flex; align-items:baseline; gap:14px;
+    padding:18px 28px 15px; display:flex; align-items:baseline; gap:14px;
     border-bottom:1px solid var(--border);
     position:sticky; top:0; background:rgba(18,22,27,0.92);
     backdrop-filter: blur(8px); z-index:10;
   }
-  header h1 { margin:0; font-size:23px; font-style:italic; letter-spacing:.3px; }
-  header h1 .ball { font-style:normal; margin-right:6px; }
-  header h1 em { color:var(--accent); }
+  header h1 { margin:0; font-family:var(--serif); font-size:26px; font-weight:600;
+              font-style:italic; letter-spacing:.2px; }
+  header h1 .ball { font-style:normal; margin-right:7px; display:inline-block;
+                    transition: transform .5s ease; }
+  header h1:hover .ball { transform: rotate(360deg); }
+  header h1 em { color:var(--accent); font-style:italic; }
   header span { color:var(--muted); font-size:13px; }
 
-  #chat { max-width: 900px; margin:0 auto; padding:20px 16px 150px; }
-  .msg { margin:18px 0; line-height:1.55; display:flex; animation: rise .4s cubic-bezier(.2,.7,.3,1) both; }
+  #chat { max-width: 860px; margin:0 auto; padding:20px 16px 130px; }
+  .msg { margin:18px 0; display:flex; animation: rise .4s cubic-bezier(.2,.7,.3,1) both; }
   .msg.user { justify-content:flex-end; }
-  .msg .bubble {
-    padding:11px 16px; border-radius:14px; max-width:78%;
-    white-space:pre-wrap; font-size:15px;
-  }
+  .msg .bubble { padding:12px 16px; border-radius:16px; font-size:15px; line-height:1.55; }
   .msg.user .bubble {
+    max-width:80%; white-space:pre-wrap;
     background:linear-gradient(135deg, var(--accent), #d4691f);
-    color:#16100a; border-bottom-right-radius:4px; font-weight:500;
+    color:#16100a; border-bottom-right-radius:5px; font-weight:500;
   }
   .msg.assistant .bubble {
+    max-width:min(100%, 660px);
     background:var(--panel); border:1px solid var(--border);
-    border-bottom-left-radius:4px;
+    border-bottom-left-radius:5px;
   }
-  @keyframes rise { from { opacity:0; transform:translateY(10px); } to { opacity:1; transform:none; } }
+  /* Rendered markdown inside assistant bubbles */
+  .bubble p { margin:0 0 9px; }
+  .bubble p:last-child, .bubble ul:last-child, .bubble ol:last-child { margin-bottom:0; }
+  .bubble p.h { font-family:var(--serif); font-weight:600; font-size:16px; margin:2px 0 8px; }
+  .bubble ul, .bubble ol { margin:6px 0 9px; padding-left:20px; }
+  .bubble li { margin:3px 0; }
+  .bubble strong { color:#fff; font-weight:600; }
+  .bubble em { font-style:italic; color:var(--ink); }
+  .bubble code { background:rgba(255,255,255,0.07); border:1px solid var(--border);
+                 padding:1px 5px; border-radius:5px; font-size:13px;
+                 font-family:'IBM Plex Mono', ui-monospace, monospace; }
+  .bubble table { border-collapse:collapse; margin:8px 0; font-size:13.5px;
+                  width:100%; }
+  .bubble th, .bubble td { border:1px solid var(--border); padding:5px 10px;
+                           text-align:left; }
+  .bubble th { background:rgba(255,255,255,0.05); font-weight:600; color:#fff; }
+  @keyframes rise { from{opacity:0;transform:translateY(10px);} to{opacity:1;transform:none;} }
 
   .chart {
     background:var(--card); border:1px solid var(--border);
@@ -67,19 +84,13 @@
     animation: chartIn .5s cubic-bezier(.2,.7,.3,1) both;
     transition: box-shadow .25s, border-color .25s;
   }
-  /* Multiple charts in one answer render side by side, stacking on narrow screens.
-     The group breaks out wider than the 900px text column so the charts aren't
-     cramped; capped at 94vw so it never overflows the viewport. */
   .chart-group.multi {
     display:flex; flex-wrap:wrap; gap:16px; margin:14px 0;
     width:min(1150px, 94vw); position:relative; left:50%; transform:translateX(-50%);
   }
   .chart-group.multi .chart { flex:1 1 460px; min-width:0; margin:0; }
-  .chart:hover {
-    box-shadow: 0 10px 34px rgba(0,0,0,0.45);
-    border-color: rgba(232,131,58,0.3);
-  }
-  @keyframes chartIn { from { opacity:0; transform:translateY(14px) scale(.99); } to { opacity:1; transform:none; } }
+  .chart:hover { box-shadow:0 10px 34px rgba(0,0,0,0.45); border-color:rgba(232,131,58,0.3); }
+  @keyframes chartIn { from{opacity:0;transform:translateY(14px) scale(.99);} to{opacity:1;transform:none;} }
 
   /* Dribbling-basketball loader */
   .thinking { color:var(--muted); font-style:italic; display:flex; align-items:flex-end; gap:11px; }
@@ -89,70 +100,56 @@
   .dribble .floor { position:absolute; left:4px; bottom:1px; width:16px; height:4px;
     border-radius:50%; background:rgba(0,0,0,.45); filter:blur(1px);
     animation: floor .65s cubic-bezier(.45,0,.55,1) infinite; }
-  @keyframes dribble {
-    0%   { transform:translateY(-20px) scale(1,1); }
-    45%  { transform:translateY(0) scale(1.12,.86); }   /* squash on contact */
-    55%  { transform:translateY(0) scale(1.12,.86); }
-    100% { transform:translateY(-20px) scale(1,1); }
-  }
-  @keyframes floor {
-    0%,100% { transform:scaleX(.55); opacity:.18; }
-    50%     { transform:scaleX(1);   opacity:.5; }
-  }
+  @keyframes dribble { 0%{transform:translateY(-20px) scale(1,1);}
+    45%{transform:translateY(0) scale(1.12,.86);} 55%{transform:translateY(0) scale(1.12,.86);}
+    100%{transform:translateY(-20px) scale(1,1);} }
+  @keyframes floor { 0%,100%{transform:scaleX(.55);opacity:.18;} 50%{transform:scaleX(1);opacity:.5;} }
   .dots::after { content:''; animation: dots 1.4s steps(1,end) infinite; }
   @keyframes dots { 0%{content:'';} 25%{content:'.';} 50%{content:'..';} 75%{content:'...';} }
 
   form {
     position:fixed; bottom:0; left:0; right:0;
-    background:linear-gradient(transparent, var(--bg) 30%);
-    padding:26px 14px 16px;
+    background:linear-gradient(transparent, var(--bg) 28%);
+    padding:24px 14px 16px;
   }
-  .row { max-width:900px; margin:0 auto; display:flex; gap:10px; }
+  /* Example chips sit ABOVE the input before the first message, then hide. */
+  .hints { max-width:860px; margin:0 auto 11px; display:flex; flex-wrap:wrap; gap:8px;
+           transition: opacity .3s, transform .3s; }
+  form.started .hints { display:none; }
+  .hints .lead { color:var(--muted); font-size:12.5px; align-self:center; margin-right:2px; }
+  .hints a {
+    color:var(--muted); font-size:12.5px; cursor:pointer; text-decoration:none;
+    border:1px solid var(--border); border-radius:999px; padding:6px 13px;
+    transition: color .18s, border-color .18s, transform .18s, background .18s;
+    background:rgba(24,31,38,0.7);
+  }
+  .hints a:hover { color:var(--ink); border-color:var(--accent);
+                   transform:translateY(-2px); background:rgba(232,131,58,0.08); }
+  .row { max-width:860px; margin:0 auto; display:flex; gap:10px; }
   input {
-    flex:1; padding:13px 16px; border-radius:12px;
-    border:1px solid var(--border); background:var(--panel);
-    color:var(--ink); font-size:15px; font-family:inherit; outline:none;
-    transition: border-color .15s;
+    flex:1; padding:13px 16px; border-radius:12px; border:1px solid var(--border);
+    background:var(--panel); color:var(--ink); font-size:15px; font-family:var(--sans);
+    outline:none; transition: border-color .15s, box-shadow .15s;
   }
   input:focus { border-color:var(--accent); box-shadow:0 0 0 3px rgba(232,131,58,0.14); }
-  input::placeholder { color:var(--muted); font-style:italic; }
+  input::placeholder { color:var(--muted); }
   button {
-    padding:13px 26px; border-radius:12px; border:none;
-    background:var(--accent); color:#16100a; font-size:15px; font-weight:600;
-    cursor:pointer; font-family:inherit;
+    padding:13px 26px; border-radius:12px; border:none; background:var(--accent);
+    color:#16100a; font-size:15px; font-weight:600; cursor:pointer; font-family:var(--sans);
     transition: filter .15s, transform .12s, box-shadow .15s;
   }
   button:hover { filter:brightness(1.1); box-shadow:0 4px 16px rgba(232,131,58,0.3); }
   button:active { transform:scale(.96); }
   button:disabled { opacity:.45; cursor:default; transform:none; box-shadow:none; }
 
-  .hints { max-width:900px; margin:10px auto 0; display:flex; flex-wrap:wrap; gap:8px; }
-  .hints a {
-    color:var(--muted); font-size:12.5px; cursor:pointer; text-decoration:none;
-    border:1px solid var(--border); border-radius:999px; padding:5px 12px;
-    transition: color .18s, border-color .18s, transform .18s, background .18s;
-    background:rgba(24,31,38,0.6);
-  }
-  .hints a:hover {
-    color:var(--ink); border-color:var(--accent); transform:translateY(-2px);
-    background:rgba(232,131,58,0.08);
-  }
-
-  .welcome { text-align:center; color:var(--muted); padding:60px 20px 20px;
+  .welcome { text-align:center; color:var(--muted); padding:64px 20px 20px;
              animation: rise .6s ease both; }
-  .welcome .big { font-size:42px; margin-bottom:10px; display:inline-block;
+  .welcome .big { font-size:46px; margin-bottom:12px; display:inline-block;
                   animation: float 3.6s ease-in-out infinite; }
-  .welcome h2 { color:var(--ink); font-weight:normal; font-style:italic;
-                font-size:22px; margin:0 0 8px; }
-  .welcome p { font-size:14px; max-width:480px; margin:0 auto; line-height:1.6; }
-  @keyframes float {
-    0%,100% { transform:translateY(0) rotate(-4deg); }
-    50%     { transform:translateY(-10px) rotate(4deg); }
-  }
-
-  /* Header ball gives a little spin when you mouse over the wordmark */
-  header h1 .ball { display:inline-block; transition: transform .5s ease; }
-  header h1:hover .ball { transform: rotate(360deg); }
+  .welcome h2 { color:var(--ink); font-family:var(--serif); font-weight:500;
+                font-style:italic; font-size:26px; margin:0 0 10px; }
+  .welcome p { font-size:14.5px; max-width:470px; margin:0 auto; line-height:1.65; }
+  @keyframes float { 0%,100%{transform:translateY(0) rotate(-4deg);} 50%{transform:translateY(-10px) rotate(4deg);} }
 
   @media (prefers-reduced-motion: reduce) {
     *, *::before { animation: none !important; transition: none !important; }
@@ -169,22 +166,23 @@
   <div class="welcome" id="welcome">
     <div class="big">🏀</div>
     <h2>Settle the argument with a chart.</h2>
-    <p>Five seasons of NBA data — every box score, 1.1 million shot locations,
+    <p>Five seasons of NBA data — every box score, 1.2 million shot locations,
        defender-distance splits — one question away.</p>
   </div>
 </div>
 
 <form id="form">
-  <div class="row">
-    <input id="input" placeholder="e.g. Show me Curry’s shot chart this season" autocomplete="off">
-    <button id="send" type="submit">Send</button>
-  </div>
   <div class="hints">
+    <span class="lead">Try:</span>
     <a>Jokic vs Embiid scoring by season</a>
     <a>Where does Tatum like to shoot from?</a>
     <a>Who leads the league in assists?</a>
     <a>How does Luka shoot against tight defense?</a>
-    <a>Warriors 3-point shooting trend</a>
+    <a>Curry and Tatum shot charts side by side</a>
+  </div>
+  <div class="row">
+    <input id="input" placeholder="e.g. Show me Curry’s shot chart this season" autocomplete="off">
+    <button id="send" type="submit">Send</button>
   </div>
 </form>
 
@@ -205,21 +203,78 @@ const PLOTLY_CONFIG = {
 document.querySelectorAll('.hints a').forEach(a =>
   a.addEventListener('click', () => { input.value = a.textContent; form.requestSubmit(); }));
 
-function addBubble(role, html) {
+function escapeHtml(s) {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+// Minimal, safe markdown: escape HTML first, then handle bold/italic/code,
+// bullet/numbered lists, headings, tables, and paragraphs.
+function renderMarkdown(src) {
+  const inline = s => s
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/__([^_]+)__/g, '<strong>$1</strong>')
+    .replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<em>$2</em>')
+    .replace(/(^|[\s(])_([^_\n]+)_/g, '$1<em>$2</em>');
+  const isSep = s => s.includes('-') && /^\s*\|?[\s:|-]*-[\s:|-]*\|?\s*$/.test(s);
+  const cells = s => {
+    let t = s.trim();
+    if (t.startsWith('|')) t = t.slice(1);
+    if (t.endsWith('|')) t = t.slice(0, -1);
+    return t.split('|').map(c => c.trim());
+  };
+  const lines = escapeHtml(src).split(/\r?\n/);
+  let html = '', list = null, i = 0;
+  const closeList = () => { if (list) { html += '</' + list + '>'; list = null; } };
+  while (i < lines.length) {
+    const line = lines[i].trim();
+    if (!line) { closeList(); i++; continue; }
+    // Pipe table: a header row followed by a |---|---| separator row.
+    if (line.includes('|') && i + 1 < lines.length && isSep(lines[i + 1])) {
+      closeList();
+      html += '<table><thead><tr>' +
+        cells(line).map(c => '<th>' + inline(c) + '</th>').join('') + '</tr></thead><tbody>';
+      i += 2;
+      while (i < lines.length && lines[i].includes('|') && lines[i].trim()) {
+        html += '<tr>' + cells(lines[i]).map(c => '<td>' + inline(c) + '</td>').join('') + '</tr>';
+        i++;
+      }
+      html += '</tbody></table>';
+      continue;
+    }
+    let m;
+    if ((m = line.match(/^[-*]\s+(.*)/))) {
+      if (list !== 'ul') { closeList(); html += '<ul>'; list = 'ul'; }
+      html += '<li>' + inline(m[1]) + '</li>';
+    } else if ((m = line.match(/^\d+[.)]\s+(.*)/))) {
+      if (list !== 'ol') { closeList(); html += '<ol>'; list = 'ol'; }
+      html += '<li>' + inline(m[1]) + '</li>';
+    } else if ((m = line.match(/^#{1,6}\s+(.*)/))) {
+      closeList(); html += '<p class="h">' + inline(m[1]) + '</p>';
+    } else {
+      closeList(); html += '<p>' + inline(line) + '</p>';
+    }
+    i++;
+  }
+  closeList();
+  return html;
+}
+
+function addBubble(role, text, { markdown = false } = {}) {
   const div = document.createElement('div');
   div.className = 'msg ' + role;
   const b = document.createElement('div');
   b.className = 'bubble';
-  b.textContent = html;
+  if (markdown) b.innerHTML = renderMarkdown(text);
+  else b.textContent = text;
   div.appendChild(b);
   chat.appendChild(div);
-  div.scrollIntoView({behavior:'smooth', block:'end'});
+  div.scrollIntoView({ behavior: 'smooth', block: 'end' });
   return b;
 }
 
-// Court charts are square; size their card height to the actual court aspect
-// so they fill the width with no letterbox whitespace — identical at any width,
-// which keeps side-by-side courts consistent.
+// Court charts are square; size their card height to the court aspect so they
+// fill the width with no letterbox whitespace — identical at any width.
 function squareHeight(div, figure) {
   const sq = figure.layout && figure.layout.meta && figure.layout.meta.square;
   const w = div.clientWidth;
@@ -240,7 +295,7 @@ function addCharts(figures) {
     const div = document.createElement('div');
     div.className = 'chart';
     const h = (figure.layout && figure.layout.height) || 480;
-    div.style.height = h + 'px';  // reserve height so Plotly never sees a collapsed box
+    div.style.height = h + 'px';
     group.appendChild(div);
     return { div, figure };
   });
@@ -248,13 +303,11 @@ function addCharts(figures) {
   Promise.all(items.map(({ div, figure }) =>
     Plotly.newPlot(div, figure.data, figure.layout, PLOTLY_CONFIG)
   )).then(() => {
-    // Frame 1: set square (court) heights now that final widths are known.
     requestAnimationFrame(() => {
       items.forEach(({ div, figure }) => {
         const sh = squareHeight(div, figure);
         if (sh) div.style.height = sh + 'px';
       });
-      // Frame 2: resize them all together against their settled dimensions.
       requestAnimationFrame(() => items.forEach(({ div }) => Plotly.Plots.resize(div)));
     });
   });
@@ -265,6 +318,7 @@ form.addEventListener('submit', async (e) => {
   e.preventDefault();
   const message = input.value.trim();
   if (!message) return;
+  form.classList.add('started');           // hide the example chips
   document.getElementById('welcome')?.remove();
   input.value = '';
   send.disabled = true;
@@ -277,16 +331,16 @@ form.addEventListener('submit', async (e) => {
   try {
     const res = await fetch('/api/chat', {
       method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({message, history})
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message, history })
     });
     if (!res.ok) throw new Error((await res.json()).detail || res.statusText);
     const data = await res.json();
     pending.parentElement.remove();
     if (data.figures && data.figures.length) addCharts(data.figures);
-    if (data.reply) addBubble('assistant', data.reply);
-    history.push({role:'user', content: message});
-    history.push({role:'assistant', content: data.reply || '[chart]'});
+    if (data.reply) addBubble('assistant', data.reply, { markdown: true });
+    history.push({ role: 'user', content: message });
+    history.push({ role: 'assistant', content: data.reply || '[chart]' });
     if (history.length > 20) history.splice(0, history.length - 20);
   } catch (err) {
     pending.classList.remove('thinking');

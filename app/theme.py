@@ -21,7 +21,10 @@ PALETTE = {
 # Categorical series order for multi-line/bar charts.
 SERIES = ["#e8833a", "#45b8a4", "#c9b458", "#9d8cd6", "#d96c8a", "#6aa9d8"]
 
-FONT = "Georgia, 'Times New Roman', serif"
+# Data / axis / legend text — a clean, legible sans (loaded in index.html).
+FONT = "'IBM Plex Sans', system-ui, -apple-system, sans-serif"
+# Chart titles — a characterful display serif, matching the UI wordmark.
+TITLE_FONT = "'Fraunces', Georgia, serif"
 
 # Sequential scale for shot-density heatmaps: transparent floor so the court
 # shows through where nothing happened, warming up to cream at the peak.
@@ -46,17 +49,20 @@ def style(fig: go.Figure, title: str, subtitle: str | None = None,
         font=dict(family=FONT, color=PALETTE["ink"], size=13),
         title=dict(
             text=f"<b>{title}</b>",
-            font=dict(size=20, family=FONT, color=PALETTE["ink"]),
+            font=dict(size=21, family=TITLE_FONT, color=PALETTE["ink"]),
             subtitle=dict(
                 text=subtitle or "",
                 font=dict(size=12.5, color=PALETTE["muted"], family=FONT),
             ),
-            x=0.045, xanchor="left", yanchor="top", pad=dict(b=10),
+            x=0.04, xanchor="left", yanchor="top", pad=dict(b=12),
         ),
-        margin=dict(l=58, r=28, t=96 if subtitle else 64, b=66),
+        # Roomy top band so the title/subtitle (left) and legend (right) never
+        # crowd each other or the plot.
+        margin=dict(l=58, r=30, t=112 if subtitle else 78, b=64),
         legend=dict(
-            orientation="h", x=1, y=1.02, xanchor="right", yanchor="bottom",
+            orientation="h", x=1, y=1.0, xanchor="right", yanchor="bottom",
             bgcolor="rgba(0,0,0,0)", font=dict(size=12, color=PALETTE["muted"]),
+            itemsizing="constant",
         ),
         hoverlabel=dict(
             bgcolor="#1f2630", bordercolor="rgba(141,151,161,0.3)",

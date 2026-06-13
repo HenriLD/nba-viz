@@ -199,8 +199,6 @@ def _shot_chart(params: dict) -> ChartResult:
         fig, f"{p.full_name} — shot chart",
         subtitle=f"{season} regular season · {len(df):,} attempts · {fg:.1%} FG",
         height=640)
-    fig.update_layout(legend=dict(orientation="h", x=0.5, xanchor="center",
-                                  y=1.02, yanchor="bottom"))
     return ChartResult(fig, f"{len(df)} shots, {len(made)} made ({fg:.1%} FG).")
 
 
