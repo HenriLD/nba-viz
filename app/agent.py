@@ -258,15 +258,15 @@ def _dispatch(name: str, args: dict):
     raise ValueError(f"Unknown tool {name}")
 
 
-def run_agent(message: str, history: list[dict] | None = None) -> dict:
-    """Returns {"reply": str, "figures": list[dict]} — one entry per chart,
-    in render order, so the UI can lay several out side by side."""
+def run_agent(message: str) -> dict:
+    """Answer one question. Single-turn by design — no conversation history;
+    each question is independent.
+
+    Returns {"reply": str, "figures": list[dict]} — one entry per chart, in
+    render order, so the UI can lay several out side by side."""
     client = _client()
-    messages = [{"role": "system", "content": system_prompt()}]
-    for h in (history or [])[-10:]:
-        if h.get("role") in ("user", "assistant") and h.get("content"):
-            messages.append({"role": h["role"], "content": str(h["content"])})
-    messages.append({"role": "user", "content": message})
+    messages = [{"role": "system", "content": system_prompt()},
+                {"role": "user", "content": message}]
 
     tools = [RENDER_CHART_TOOL, QUERY_CHART_TOOL]
     figures: list[dict] = []

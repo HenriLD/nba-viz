@@ -18,21 +18,16 @@ app = FastAPI(title="nba-viz")
 STATIC = Path(__file__).parent / "static"
 
 
-class ChatTurn(BaseModel):
-    role: str
-    content: str
-
-
 class ChatRequest(BaseModel):
+    # Single-turn by design: every question is independent, no conversation
+    # history. Each request stands alone.
     message: str = Field(min_length=1, max_length=500)
-    history: list[ChatTurn] = []
 
 
 @app.post("/api/chat")
 def chat(req: ChatRequest):
     try:
-        result = run_agent(req.message, [t.model_dump() for t in req.history])
-        return result
+        return run_agent(req.message)
     except Exception as e:  # surface a friendly error, log the real one
         log.exception("chat failed")
         raise HTTPException(status_code=500, detail=str(e))
