@@ -32,7 +32,7 @@ def _client() -> OpenAI:
 
 
 def _model() -> str:
-    return os.environ.get("OPENROUTER_MODEL", "moonshotai/kimi-k2")
+    return os.environ.get("OPENROUTER_MODEL", "openrouter/free")
 
 
 RENDER_CHART_TOOL = {

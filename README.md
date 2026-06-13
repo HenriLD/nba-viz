@@ -111,8 +111,13 @@ Create a `.env` in the repo root:
 ```ini
 DATABASE_URL=postgresql+psycopg://user:pass@host/db?sslmode=require
 OPENROUTER_API_KEY=sk-or-v1-...
-OPENROUTER_MODEL=moonshotai/kimi-k2
+OPENROUTER_MODEL=openrouter/free
 ```
+
+`openrouter/free` routes to a current free model (cheapest; top template
+accuracy in our benchmark, but the underlying model can change). Pin a named
+model (e.g. `moonshotai/kimi-k2`, `mistralai/mistral-medium-3-5`) for
+reproducible behavior — see `eval/benchmark.py`.
 
 Then backfill and run:
 
