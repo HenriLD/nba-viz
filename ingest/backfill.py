@@ -32,7 +32,7 @@ def main() -> int:
     for season in seasons:
         log.info("=== %s ===", season)
         sync_game_logs(season, full=True)
-        sync_shots(season)
+        sync_shots(season, full=True)
         sync_defender_shooting(season)
         sync_standings(season)
     log.info("backfill complete")

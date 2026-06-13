@@ -25,10 +25,17 @@ def sync_static() -> None:
     log.info("teams upserted: %s", n)
 
 
-def _date_from(season: str) -> str | None:
-    """Re-pull from 3 days before the latest stored game to catch stat corrections."""
+# Tables that support incremental pulls, keyed by where to read the high-water mark.
+_INCREMENTAL_TABLES = {"player_game_logs", "team_game_logs", "shots"}
+
+
+def _date_from(season: str, table: str) -> str | None:
+    """Re-pull from 3 days before the latest stored game to catch stat
+    corrections. Each table tracks its own high-water mark so a partial
+    failure in one sync step can't create a gap in another."""
+    assert table in _INCREMENTAL_TABLES  # table name is never user input
     df = query_df(
-        "SELECT max(game_date) AS d FROM player_game_logs WHERE season = :s",
+        f"SELECT max(game_date) AS d FROM {table} WHERE season = :s",
         {"s": season})
     if df.empty or pd.isna(df.loc[0, "d"]):
         return None
@@ -37,15 +44,16 @@ def _date_from(season: str) -> str | None:
 
 
 def sync_game_logs(season: str, full: bool = False) -> None:
-    date_from = None if full else _date_from(season)
     for st in SEASON_TYPES:
         try:
+            date_from = None if full else _date_from(season, "player_game_logs")
             pgl = ep.fetch_player_game_logs(season, st, date_from=date_from)
             log.info("player logs %s %s (from %s): %s rows", season, st, date_from, len(pgl))
             upsert_df("player_game_logs", pgl, ["player_id", "game_id"])
 
-            tgl = ep.fetch_team_game_logs(season, st)
-            log.info("team logs %s %s: %s rows", season, st, len(tgl))
+            date_from = None if full else _date_from(season, "team_game_logs")
+            tgl = ep.fetch_team_game_logs(season, st, date_from=date_from)
+            log.info("team logs %s %s (from %s): %s rows", season, st, date_from, len(tgl))
             upsert_df("team_game_logs", tgl, ["team_id", "game_id"])
         except Exception:
             # Playoffs endpoint 200s with empty data pre-playoffs; other errors should surface.
@@ -55,10 +63,11 @@ def sync_game_logs(season: str, full: bool = False) -> None:
                 raise
 
 
-def sync_shots(season: str) -> None:
+def sync_shots(season: str, full: bool = False) -> None:
     for st in SEASON_TYPES:
-        df = ep.fetch_shots(season, st)
-        log.info("shots %s %s: %s rows", season, st, len(df))
+        date_from = None if full else _date_from(season, "shots")
+        df = ep.fetch_shots(season, st, date_from=date_from)
+        log.info("shots %s %s (from %s): %s rows", season, st, date_from, len(df))
         upsert_df("shots", df, ["game_id", "game_event_id"])
 
 
@@ -87,7 +96,7 @@ def main() -> int:
 
     sync_static()
     sync_game_logs(season, full=args.full)
-    sync_shots(season)            # full-season pull; upsert dedupes
+    sync_shots(season, full=args.full)
     sync_defender_shooting(season)
     sync_standings(season)
     log.info("done")

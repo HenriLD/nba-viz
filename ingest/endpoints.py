@@ -61,11 +61,13 @@ def fetch_static_teams() -> pd.DataFrame:
 
 
 @_retry
-def fetch_team_game_logs(season: str, season_type: str = "Regular Season") -> pd.DataFrame:
+def fetch_team_game_logs(season: str, season_type: str = "Regular Season",
+                         date_from: str | None = None) -> pd.DataFrame:
+    """date_from format: MM/DD/YYYY."""
     _pace()
     df = _norm(leaguegamelog.LeagueGameLog(
         season=season, season_type_all_star=season_type,
-        timeout=TIMEOUT).get_data_frames()[0])
+        date_from_nullable=date_from, timeout=TIMEOUT).get_data_frames()[0])
     df["season"] = season
     df["season_type"] = season_type
     df["game_date"] = pd.to_datetime(df["game_date"]).dt.date
@@ -86,27 +88,46 @@ def fetch_player_game_logs(season: str, season_type: str = "Regular Season",
     return df
 
 
+ROW_CAP = 102_400  # the API silently truncates any single response at this size
+
+
 @_retry
-def _fetch_team_shots(team_id: int, season: str, season_type: str) -> pd.DataFrame:
+def _fetch_shots_call(team_id: int, season: str, season_type: str,
+                      date_from: str | None = None) -> pd.DataFrame:
     _pace()
     return _norm(shotchartdetail.ShotChartDetail(
         team_id=team_id, player_id=0,
         season_nullable=season, season_type_all_star=season_type,
+        date_from_nullable=date_from,
         context_measure_simple="FGA", timeout=TIMEOUT).get_data_frames()[0])
 
 
-def fetch_shots(season: str, season_type: str = "Regular Season") -> pd.DataFrame:
-    """Shot chart detail, fetched per team.
+def fetch_shots(season: str, season_type: str = "Regular Season",
+                date_from: str | None = None) -> pd.DataFrame:
+    """Shot chart detail.
 
-    A league-wide call (team_id=0, player_id=0) silently truncates at 102,400
-    rows — roughly half a regular season — so we make 30 team-scoped calls
-    (~7k rows each) instead.
+    Full-season pulls go per-team (30 calls) because a league-wide call
+    silently truncates at ROW_CAP rows — roughly half a regular season.
+    Incremental pulls (date_from set, MM/DD/YYYY) cover only a few days of
+    shots, far below the cap, so a single league-wide call is safe and keeps
+    the daily sync to 1 request instead of 30. If an incremental response
+    ever hits the cap, we fall back to the per-team path.
     """
+    if date_from:
+        df = _fetch_shots_call(0, season, season_type, date_from)
+        if len(df) < ROW_CAP:
+            return _finalize_shots(df, season, season_type)
+        log.warning("incremental shot fetch hit the %s-row cap; "
+                    "falling back to per-team pull", ROW_CAP)
+
     frames = []
     for t in static_teams.get_teams():
         log.info("shots %s %s %s", season, season_type, t["abbreviation"])
-        frames.append(_fetch_team_shots(t["id"], season, season_type))
-    df = pd.concat(frames, ignore_index=True)
+        frames.append(_fetch_shots_call(t["id"], season, season_type))
+    return _finalize_shots(pd.concat(frames, ignore_index=True), season, season_type)
+
+
+def _finalize_shots(df: pd.DataFrame, season: str, season_type: str) -> pd.DataFrame:
     df["season"] = season
     df["season_type"] = season_type
     df["game_date"] = pd.to_datetime(df["game_date"], format="%Y%m%d").dt.date
