@@ -212,25 +212,48 @@ function addBubble(role, html) {
   return b;
 }
 
+// Court charts are square; size their card height to the actual court aspect
+// so they fill the width with no letterbox whitespace — identical at any width,
+// which keeps side-by-side courts consistent.
+function squareHeight(div, figure) {
+  const sq = figure.layout && figure.layout.meta && figure.layout.meta.square;
+  const w = div.clientWidth;
+  if (!sq || !w) return null;
+  const m = figure.layout.margin || {};
+  return Math.round((w - (m.l || 0) - (m.r || 0)) * sq + (m.t || 0) + (m.b || 0));
+}
+
 function addCharts(figures) {
   const group = document.createElement('div');
   group.className = 'chart-group' + (figures.length > 1 ? ' multi' : '');
   chat.appendChild(group);
-  figures.forEach(figure => {
+
+  // Append every card first so the flex row is fully laid out before any chart
+  // measures its width — otherwise side-by-side charts resize against a
+  // mid-layout width and render inconsistently.
+  const items = figures.map(figure => {
     const div = document.createElement('div');
     div.className = 'chart';
-    // Reserve the figure's height up front so Plotly never autosizes against
-    // a collapsed container (the "3px-tall chart" bug).
     const h = (figure.layout && figure.layout.height) || 480;
-    div.style.height = h + 'px';
+    div.style.height = h + 'px';  // reserve height so Plotly never sees a collapsed box
     group.appendChild(div);
-    Plotly.newPlot(div, figure.data, figure.layout, PLOTLY_CONFIG).then(() => {
-      // Force a resize once the card's final CSS width is known — critical when
-      // several charts share a row and each gets a fraction of the width.
-      requestAnimationFrame(() => Plotly.Plots.resize(div));
+    return { div, figure };
+  });
+
+  Promise.all(items.map(({ div, figure }) =>
+    Plotly.newPlot(div, figure.data, figure.layout, PLOTLY_CONFIG)
+  )).then(() => {
+    // Frame 1: set square (court) heights now that final widths are known.
+    requestAnimationFrame(() => {
+      items.forEach(({ div, figure }) => {
+        const sh = squareHeight(div, figure);
+        if (sh) div.style.height = sh + 'px';
+      });
+      // Frame 2: resize them all together against their settled dimensions.
+      requestAnimationFrame(() => items.forEach(({ div }) => Plotly.Plots.resize(div)));
     });
   });
-  group.scrollIntoView({behavior:'smooth', block:'end'});
+  group.scrollIntoView({ behavior: 'smooth', block: 'end' });
 }
 
 form.addEventListener('submit', async (e) => {

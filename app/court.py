@@ -79,10 +79,17 @@ def court_traces() -> list[go.Scatter]:
     return t
 
 
+# Court data aspect (plot-area height / width) = y-range / x-range = 495 / 520.
+# The frontend reads layout.meta.square to size a court card to this aspect so
+# the square court fills its width instead of letterboxing in a fixed-height box.
+COURT_ASPECT = 495 / 520
+
+
 def court_layout(height: int = 620) -> dict:
     """Axis/scale settings for a court figure. Pair with theme.style()."""
     return dict(
         height=height,
+        meta=dict(square=COURT_ASPECT),
         xaxis=dict(range=[-260, 260], visible=False, fixedrange=True),
         yaxis=dict(range=[-60, 435], visible=False, fixedrange=True,
                    scaleanchor="x", scaleratio=1),
