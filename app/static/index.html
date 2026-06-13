@@ -17,8 +17,13 @@
   body {
     margin:0; background:var(--bg); color:var(--ink);
     font-family: Georgia, 'Times New Roman', serif;
-    background-image: radial-gradient(ellipse 90% 55% at 50% -10%,
-                      rgba(232,131,58,0.06), transparent);
+  }
+  /* Warm glow pinned to the viewport (not the document) so it never
+     stretches or bands as the chat grows. */
+  body::before {
+    content:''; position:fixed; inset:0; z-index:-1; pointer-events:none;
+    background: radial-gradient(ellipse 80% 60% at 50% -12%,
+                rgba(232,131,58,0.07), transparent 70%);
   }
 
   header {
