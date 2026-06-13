@@ -116,7 +116,9 @@ def bench_flexible(model: str) -> dict:
 
 def run(models: list[str], check: bool = True) -> dict:
     avail = check_availability(models) if check else {m: True for m in models}
-    results = {}
+    # Merge into existing results so single-model runs don't clobber prior data.
+    path = _RESULTS / "benchmark.json"
+    results = json.loads(path.read_text()) if path.exists() else {}
     for model in models:
         if not avail.get(model, True):
             print(f"[skip] {model} — not on OpenRouter")
