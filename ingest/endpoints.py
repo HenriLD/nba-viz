@@ -10,8 +10,11 @@ import time
 
 import pandas as pd
 from nba_api.stats.endpoints import (
+    leaguedashplayerclutch,
     leaguedashplayerptshot,
+    leaguedashptdefend,
     leaguegamelog,
+    leaguehustlestatsplayer,
     leaguestandingsv3,
     playergamelogs,
     shotchartdetail,
@@ -151,6 +154,37 @@ def fetch_defender_shooting(season: str) -> pd.DataFrame:
         log.info("defender bucket %s %s", season, bucket)
         frames.append(_fetch_defender_bucket(season, bucket))
     return pd.concat(frames, ignore_index=True)
+
+
+@_retry
+def fetch_clutch(season: str) -> pd.DataFrame:
+    _pace()
+    df = _norm(leaguedashplayerclutch.LeagueDashPlayerClutch(
+        season=season, season_type_all_star="Regular Season",
+        timeout=TIMEOUT).get_data_frames()[0])
+    df["season"] = season
+    return df
+
+
+@_retry
+def fetch_hustle(season: str) -> pd.DataFrame:
+    _pace()
+    df = _norm(leaguehustlestatsplayer.LeagueHustleStatsPlayer(
+        season=season, season_type_all_star="Regular Season",
+        timeout=TIMEOUT).get_data_frames()[0])
+    df["season"] = season
+    return df
+
+
+@_retry
+def fetch_defense_tracking(season: str) -> pd.DataFrame:
+    _pace()
+    df = _norm(leaguedashptdefend.LeagueDashPtDefend(
+        season=season, season_type_all_star="Regular Season",
+        timeout=TIMEOUT).get_data_frames()[0])
+    df = df.rename(columns={"close_def_person_id": "player_id"})
+    df["season"] = season
+    return df
 
 
 @_retry

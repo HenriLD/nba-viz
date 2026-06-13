@@ -94,6 +94,11 @@ def upsert_df(table_name: str, df: pd.DataFrame, conflict_cols: list[str],
         return 0
     table = _reflect(table_name)
     cols = [c.name for c in table.columns if c.name in df.columns]
+    # Drop duplicate conflict keys within the batch — Postgres rejects an
+    # ON CONFLICT upsert that would touch the same row twice (e.g. a traded
+    # player appearing once per team in a season-aggregate endpoint).
+    if all(c in df.columns for c in conflict_cols):
+        df = df.drop_duplicates(subset=conflict_cols, keep="last")
     records = df[cols].where(pd.notnull(df[cols]), None).to_dict("records")
 
     written = 0

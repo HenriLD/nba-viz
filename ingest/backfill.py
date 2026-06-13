@@ -12,8 +12,8 @@ import logging
 import sys
 
 from core.seasons import recent_seasons
-from ingest.sync import (sync_defender_shooting, sync_game_logs, sync_shots,
-                         sync_standings, sync_static)
+from ingest.sync import (sync_defender_shooting, sync_enrich, sync_game_logs,
+                         sync_shots, sync_standings, sync_static)
 
 log = logging.getLogger("backfill")
 
@@ -35,6 +35,7 @@ def main() -> int:
         sync_shots(season, full=True)
         sync_defender_shooting(season)
         sync_standings(season)
+        sync_enrich(season)
     log.info("backfill complete")
     return 0
 

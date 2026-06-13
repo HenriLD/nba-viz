@@ -83,6 +83,17 @@ def sync_standings(season: str) -> None:
     log.info("standings %s: %s rows", season, len(df))
 
 
+def sync_enrich(season: str) -> None:
+    """Cheap per-player-per-season aggregates: clutch, hustle, defense."""
+    n = upsert_df("clutch_stats", ep.fetch_clutch(season), ["season", "player_id"])
+    log.info("clutch %s: %s rows", season, n)
+    n = upsert_df("hustle_stats", ep.fetch_hustle(season), ["season", "player_id"])
+    log.info("hustle %s: %s rows", season, n)
+    n = upsert_df("defense_tracking", ep.fetch_defense_tracking(season),
+                  ["season", "player_id"])
+    log.info("defense %s: %s rows", season, n)
+
+
 def main() -> int:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
     parser = argparse.ArgumentParser()
@@ -99,6 +110,7 @@ def main() -> int:
     sync_shots(season, full=args.full)
     sync_defender_shooting(season)
     sync_standings(season)
+    sync_enrich(season)
     log.info("done")
     return 0
 

@@ -149,6 +149,38 @@ v_shots — one row per shot attempt
 standings — season, team_city, team_name, conference, playoff_rank,
   wins, losses, win_pct
 
+clutch_stats — one row per player per season; NBA "clutch" = last 5 minutes
+  with the score within 5 points (a season aggregate, not per-game):
+  player_name, team_abbreviation, season, gp, w, l, min,
+  fgm, fga, fg_pct, fg3m, fg3a, fg3_pct, ftm, fta, ft_pct,
+  reb, ast, tov, stl, blk, pts (total clutch points), plus_minus,
+  dd2 (double-doubles), td3 (triple-doubles). Filter by player_name (ILIKE).
+
+hustle_stats — one row per player per season:
+  player_name, team_abbreviation, season, g, min, contested_shots,
+  contested_shots_2pt, contested_shots_3pt, deflections, charges_drawn,
+  screen_assists, screen_ast_pts, loose_balls_recovered, box_outs (season totals).
+
+defense_tracking — one row per player per season (NBA tracking "defended" shots):
+  player_name, player_position ('G','F','C','F-C',...), season, gp,
+  freq (share of opponent shots they defended), d_fgm, d_fga,
+  d_fg_pct (FG% allowed when defending), normal_fg_pct (those shooters' usual
+  FG%), pct_plusminus (d_fg_pct - normal_fg_pct; NEGATIVE = good defense).
+
+v_team_season — one row per team per season (derived):
+  team (3-letter), season, gp, wins, losses, pts_pg (offense), opp_pts_pg
+  (defense — lower is better), net_pg, fg3a_pg, fg3_pct. Use to rank teams or
+  to define opponent-strength tiers (join v_*_games.opponent = v_team_season.team
+  AND same season, then filter/rank by pts_pg or opp_pts_pg).
+
+Derivable without extra tables:
+- Double-double / triple-double GAMES: from v_player_games, e.g. count games
+  where pts>=10 AND reb>=10 AND ast>=10. (clutch_stats.dd2/td3 are clutch-only.)
+- Head-to-head: v_player_games / v_team_games already carry `opponent`; filter
+  opponent = 'BOS' for "vs the Celtics". For two players facing each other,
+  join v_player_games p1 and p2 on game_id where one's team = other's opponent.
+- Games decided by N: filter v_team_games on abs(margin) <= N.
+
 SQL rules:
 - Percentages: aggregate as sum(fgm)::numeric/nullif(sum(fga),0), NOT avg(fg_pct).
 - Booleans (won, is_home, made, is_three) can go in WHERE or in
@@ -163,10 +195,14 @@ SQL rules:
 - Always GROUP appropriately and alias columns to match your x/y/series."""
 
 CANNOT_ANSWER = """You CANNOT answer (no data) — say so plainly instead of guessing:
-- Clutch / score-margin-at-a-moment / final-minutes / quarter-by-quarter timing
-  (no play-by-play; v_shots.period is the only in-game time grain).
-- "Without teammate X" / starter vs bench / who fouled out (no lineup data;
+- Per-game or per-possession clutch timelines, score-margin-at-a-moment, or
+  quarter-by-quarter timing (no play-by-play). NOTE: season-aggregate clutch
+  IS available in clutch_stats (use it for "best clutch scorer/shooter"); only
+  the per-moment timeline is missing.
+- Lineup / on-off impact ("how does the team play with X on vs off the floor"),
+  5-man lineup ratings, starter vs bench, who fouled out (no lineup data;
   pf is the game total).
+- Play-type splits (pick-and-roll, transition, spot-up, post-up) — no Synergy data.
 - Who defended a specific shot, OR filtering shots by how open the shooter was.
   Shot locations (v_shots loc_x/loc_y) and defender-distance data live in
   separate tables that can't be joined per shot: shot data has coordinates but
@@ -174,8 +210,10 @@ CANNOT_ANSWER = """You CANNOT answer (no data) — say so plainly instead of gue
   coordinates. So an "open shots only" shot chart or heatmap is impossible —
   the NBA stopped publishing per-shot defender tracking publicly in 2016.
   The defender_distance_efficiency template (FG%/eFG% by how tightly guarded)
-  is the only defensive-pressure data, as season aggregates.
-- Position, height, age, salary, injuries, draft — none are stored.
+  and defense_tracking (overall defended FG% per defender) are the defensive
+  data available, both as season aggregates.
+- Height, age, salary, injuries, draft — not stored (rough position IS in
+  defense_tracking.player_position).
 When a question needs data you don't have, decline cleanly, briefly say why
 it's missing, and offer the closest thing you CAN show — e.g. for "where does
 X shoot when open", offer defender_distance_efficiency (how X shoots by

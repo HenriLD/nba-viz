@@ -36,6 +36,8 @@ builder — just ask:
 | Team form | Team stat trend with rolling average |
 | Shot diet by zone | Volume + accuracy per court zone |
 | Splits (home/away, wins/losses, rest) | Side-by-side bar comparison |
+| Clutch, hustle, tracking defense | Best clutch scorers, deflections/screen assists, defended FG% |
+| Triple-doubles, H2H, opponent tiers | Derived from game logs + a team-season summary |
 | **Anything else** — custom periods, specific opponents, multi-condition filters | The model writes a sandboxed SQL query and picks a chart for it |
 
 Charts are fully interactive (hover for game details, zoom, pan) and the data
@@ -101,9 +103,10 @@ git clone https://github.com/HenriLD/nba-viz && cd nba-viz
 python -m venv .venv && .venv\Scripts\activate    # Windows; use bin/activate on Unix
 pip install -r requirements.txt
 
-# create the schema and the analysis views
+# create the schema, analysis views, and enrichment tables
 psql "$DATABASE_URL" -f db/schema.sql
 psql "$DATABASE_URL" -f db/analysis_views.sql
+psql "$DATABASE_URL" -f db/enrich.sql
 ```
 
 Create a `.env` in the repo root:
