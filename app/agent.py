@@ -11,7 +11,9 @@ Names are resolved server-side (templates) or via unaccented name_key columns
 import json
 import logging
 import os
+import time
 
+import openai
 from dotenv import load_dotenv
 from openai import OpenAI
 
@@ -23,7 +25,8 @@ from core.stats import ALL_STATS
 load_dotenv()
 log = logging.getLogger("agent")
 
-MAX_TURNS = 5  # model calls per user message (1 normal + retries / SQL fixes)
+MAX_TURNS = 5    # model calls per user message (1 normal + retries / SQL fixes)
+MAX_FIGURES = 4  # charts rendered per answer (side-by-side cap)
 
 
 def _client() -> OpenAI:
@@ -33,6 +36,21 @@ def _client() -> OpenAI:
 
 def _model() -> str:
     return os.environ.get("OPENROUTER_MODEL", "openrouter/free")
+
+
+def _complete(client: OpenAI, **kwargs):
+    """Call the model with a few retries. openrouter/free routes across many
+    free providers, some of which intermittently 429 or 400 on a given request;
+    a retry usually lands on a healthy provider."""
+    last = None
+    for attempt in range(3):
+        try:
+            return client.chat.completions.create(**kwargs)
+        except openai.APIError as e:
+            last = e
+            log.warning("model call failed (attempt %d): %s", attempt + 1, e)
+            time.sleep(0.8 * (attempt + 1))
+    raise last
 
 
 RENDER_CHART_TOOL = {
@@ -183,6 +201,12 @@ don't expose, multi-condition filters, league-wide aggregates, etc.
 {CANNOT_ANSWER}
 
 Rules:
+- You may render UP TO 4 charts in one answer — call a chart tool once per
+  chart and they'll be shown side by side. Do this when the question asks for
+  charts "side by side", or naturally wants a few views (e.g. "compare Curry's
+  and Tatum's shot charts" -> two shot_chart calls; "show LeBron's scoring and
+  shooting trends" -> two player_stat_trend calls). Don't render multiple
+  unless it clearly helps; one good chart beats several redundant ones.
 - Pass player/team names as the user said them to render_chart (server fuzzy-matches).
 - Omit season to default to the current one.
 - If a tool returns an error, read it, fix your params or SQL, and try again \
@@ -224,7 +248,8 @@ def _dispatch(name: str, args: dict):
 
 
 def run_agent(message: str, history: list[dict] | None = None) -> dict:
-    """Returns {"reply": str, "figure": dict | None}."""
+    """Returns {"reply": str, "figures": list[dict]} — one entry per chart,
+    in render order, so the UI can lay several out side by side."""
     client = _client()
     messages = [{"role": "system", "content": system_prompt()}]
     for h in (history or [])[-10:]:
@@ -233,15 +258,20 @@ def run_agent(message: str, history: list[dict] | None = None) -> dict:
     messages.append({"role": "user", "content": message})
 
     tools = [RENDER_CHART_TOOL, QUERY_CHART_TOOL]
-    figure = None
+    figures: list[dict] = []
     for _ in range(MAX_TURNS):
-        resp = client.chat.completions.create(
-            model=_model(), messages=messages, tools=tools,
-            temperature=0.1, max_tokens=1200)
+        try:
+            resp = _complete(client, model=_model(), messages=messages,
+                             tools=tools, temperature=0.1, max_tokens=1200)
+        except openai.APIError as e:
+            log.warning("model unavailable after retries: %s", e)
+            note = ("The model is having trouble right now — the free router hit "
+                    "a bad provider. Please try again in a moment.")
+            return {"reply": note, "figures": figures}
         choice = resp.choices[0].message
 
         if not choice.tool_calls:
-            return {"reply": choice.content or "", "figure": figure}
+            return {"reply": choice.content or "", "figures": figures}
 
         messages.append({"role": "assistant", "content": choice.content,
                          "tool_calls": [tc.model_dump() for tc in choice.tool_calls]})
@@ -249,8 +279,12 @@ def run_agent(message: str, history: list[dict] | None = None) -> dict:
             try:
                 args = _parse_args(tc.function.arguments)
                 result = _dispatch(tc.function.name, args)
-                figure = json.loads(result.figure.to_json())
-                feedback = f"Chart rendered. Data summary: {result.summary}"
+                if len(figures) >= MAX_FIGURES:
+                    feedback = (f"Chart not rendered: limit of {MAX_FIGURES} "
+                                "charts per answer reached.")
+                else:
+                    figures.append(json.loads(result.figure.to_json()))
+                    feedback = f"Chart rendered. Data summary: {result.summary}"
             except Exception as e:  # noqa: BLE001 — error text goes back to the model
                 log.warning("tool error: %s", e)
                 feedback = f"ERROR: {e}"
@@ -258,7 +292,7 @@ def run_agent(message: str, history: list[dict] | None = None) -> dict:
                              "content": feedback})
 
     return {"reply": "Sorry, I couldn't build that chart after a few attempts.",
-            "figure": figure}
+            "figures": figures}
 
 
 def propose_tool_call(message: str, model: str | None = None,

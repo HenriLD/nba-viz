@@ -104,7 +104,7 @@ def bench_flexible(model: str) -> dict:
         try:
             r = run_agent(case["q"])
             times.append(time.monotonic() - t)
-            if (r["figure"] is not None) == case["expect_figure"]:
+            if (len(r["figures"]) > 0) == case["expect_figure"]:
                 correct += 1
         except Exception:  # noqa: BLE001
             times.append(time.monotonic() - t)

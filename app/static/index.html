@@ -67,6 +67,9 @@
     animation: chartIn .5s cubic-bezier(.2,.7,.3,1) both;
     transition: box-shadow .25s, border-color .25s;
   }
+  /* Multiple charts in one answer render side by side, stacking on narrow screens. */
+  .chart-group.multi { display:flex; flex-wrap:wrap; gap:14px; margin:14px 0; }
+  .chart-group.multi .chart { flex:1 1 360px; min-width:0; margin:0; }
   .chart:hover {
     box-shadow: 0 10px 34px rgba(0,0,0,0.45);
     border-color: rgba(232,131,58,0.3);
@@ -209,20 +212,25 @@ function addBubble(role, html) {
   return b;
 }
 
-function addChart(figure) {
-  const div = document.createElement('div');
-  div.className = 'chart';
-  // Reserve the figure's height up front so Plotly never autosizes against
-  // a collapsed container (the "3px-tall chart" bug).
-  const h = (figure.layout && figure.layout.height) || 480;
-  div.style.height = h + 'px';
-  chat.appendChild(div);
-  Plotly.newPlot(div, figure.data, figure.layout, PLOTLY_CONFIG).then(() => {
-    // Belt and suspenders: force a resize on the next frame, when the card's
-    // final CSS width is definitely known.
-    requestAnimationFrame(() => Plotly.Plots.resize(div));
+function addCharts(figures) {
+  const group = document.createElement('div');
+  group.className = 'chart-group' + (figures.length > 1 ? ' multi' : '');
+  chat.appendChild(group);
+  figures.forEach(figure => {
+    const div = document.createElement('div');
+    div.className = 'chart';
+    // Reserve the figure's height up front so Plotly never autosizes against
+    // a collapsed container (the "3px-tall chart" bug).
+    const h = (figure.layout && figure.layout.height) || 480;
+    div.style.height = h + 'px';
+    group.appendChild(div);
+    Plotly.newPlot(div, figure.data, figure.layout, PLOTLY_CONFIG).then(() => {
+      // Force a resize once the card's final CSS width is known — critical when
+      // several charts share a row and each gets a fraction of the width.
+      requestAnimationFrame(() => Plotly.Plots.resize(div));
+    });
   });
-  div.scrollIntoView({behavior:'smooth', block:'end'});
+  group.scrollIntoView({behavior:'smooth', block:'end'});
 }
 
 form.addEventListener('submit', async (e) => {
@@ -247,7 +255,7 @@ form.addEventListener('submit', async (e) => {
     if (!res.ok) throw new Error((await res.json()).detail || res.statusText);
     const data = await res.json();
     pending.parentElement.remove();
-    if (data.figure) addChart(data.figure);
+    if (data.figures && data.figures.length) addCharts(data.figures);
     if (data.reply) addBubble('assistant', data.reply);
     history.push({role:'user', content: message});
     history.push({role:'assistant', content: data.reply || '[chart]'});

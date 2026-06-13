@@ -67,7 +67,7 @@ def score_flexible(model: str) -> tuple[int, int, list[str]]:
     for case in FLEXIBLE:
         try:
             r = run_agent(case["q"])
-            got_fig = r["figure"] is not None
+            got_fig = len(r["figures"]) > 0
             ok = got_fig == case["expect_figure"]
             if ok:
                 correct += 1
