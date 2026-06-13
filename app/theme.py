@@ -202,7 +202,7 @@ def style(fig: go.Figure, title: str, subtitle: str | None = None,
     )
     if source:
         fig.add_annotation(
-            text="nba-viz · data: stats.nba.com",
+            text="Court Vision · data: stats.nba.com",
             xref="paper", yref="paper", x=1, y=-0.125,
             xanchor="right", yanchor="top", showarrow=False,
             font=dict(size=10, color=PALETTE["muted"], family=FONT),

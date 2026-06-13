@@ -14,7 +14,7 @@ from app.agent import run_agent
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("app")
 
-app = FastAPI(title="nba-viz")
+app = FastAPI(title="Court Vision")
 STATIC = Path(__file__).parent / "static"
 
 

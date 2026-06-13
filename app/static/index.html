@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>nba-viz — ask for NBA charts in plain English</title>
+<title>Court Vision — NBA charts in plain English</title>
 <!-- Keep in sync with the plotly version in requirements.txt (python 6.8 = js 3.6) -->
 <script src="https://cdn.plot.ly/plotly-3.6.0.min.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -101,18 +101,45 @@
   .chart:hover { box-shadow:0 10px 34px rgba(0,0,0,0.45); border-color:rgba(232,131,58,0.3); }
   @keyframes chartIn { from{opacity:0;transform:translateY(14px) scale(.99);} to{opacity:1;transform:none;} }
 
-  /* Dribbling-basketball loader */
-  .thinking { color:var(--muted); font-style:italic; display:flex; align-items:flex-end; gap:11px; }
-  .dribble { position:relative; width:24px; height:30px; flex:none; }
-  .dribble .ball { position:absolute; left:2px; top:0; font-size:19px; line-height:1;
-    transform-origin:center bottom; animation: dribble .65s cubic-bezier(.45,0,.55,1) infinite; }
-  .dribble .floor { position:absolute; left:4px; bottom:1px; width:16px; height:4px;
-    border-radius:50%; background:rgba(0,0,0,.45); filter:blur(1px);
-    animation: floor .65s cubic-bezier(.45,0,.55,1) infinite; }
-  @keyframes dribble { 0%{transform:translateY(-20px) scale(1,1);}
-    45%{transform:translateY(0) scale(1.12,.86);} 55%{transform:translateY(0) scale(1.12,.86);}
-    100%{transform:translateY(-20px) scale(1,1);} }
-  @keyframes floor { 0%,100%{transform:scaleX(.55);opacity:.18;} 50%{transform:scaleX(1);opacity:.5;} }
+  /* Front-and-center "swish" loader: the ball arcs into the hoop and through
+     the net, on a loop. */
+  .loader { display:flex; flex-direction:column; align-items:center; gap:18px;
+            padding:54px 20px 30px; animation: rise .4s ease both; }
+  .court-scene { position:relative; width:260px; height:170px; }
+  .court-scene svg { position:absolute; inset:0; width:100%; height:100%; overflow:visible; }
+  .court-scene .net { transform-origin:center top; animation: swish 1.8s cubic-bezier(.5,0,.5,1) infinite; }
+  .court-scene .ball {
+    position:absolute; left:0; top:0; font-size:30px; line-height:1; will-change:transform;
+    filter: drop-shadow(0 3px 5px rgba(0,0,0,.4));
+    animation: shoot 1.8s cubic-bezier(.33,0,.5,1) infinite;
+  }
+  .court-scene .ball-shadow {
+    position:absolute; bottom:8px; left:24px; width:34px; height:8px; border-radius:50%;
+    background:rgba(0,0,0,.45); filter:blur(2px);
+    animation: ballshadow 1.8s cubic-bezier(.33,0,.5,1) infinite;
+  }
+  @keyframes shoot {
+    0%   { transform: translate(18px,118px) scale(.7)  rotate(0deg);   opacity:1; }
+    8%   { opacity:1; }
+    48%  { transform: translate(118px,8px)  scale(1.05) rotate(330deg); }
+    66%  { transform: translate(186px,74px) scale(.92) rotate(560deg); opacity:1; }
+    78%  { transform: translate(192px,116px) scale(.8) rotate(620deg); opacity:0; }
+    100% { transform: translate(192px,116px) scale(.8) rotate(620deg); opacity:0; }
+  }
+  @keyframes ballshadow {
+    0%   { transform: translateX(0)    scaleX(.7); opacity:.45; }
+    48%  { transform: translateX(150px) scaleX(.3); opacity:.12; }
+    66%  { transform: translateX(178px) scaleX(.5); opacity:.2; }
+    100% { transform: translateX(178px) scaleX(.5); opacity:0; }
+  }
+  @keyframes swish {
+    0%,62% { transform: scaleY(1) skewX(0deg); }
+    70%    { transform: scaleY(1.28) skewX(6deg); }
+    80%    { transform: scaleY(.92) skewX(-4deg); }
+    90%,100% { transform: scaleY(1) skewX(0deg); }
+  }
+  .loader-text { color:var(--muted); font-size:14px; font-style:italic;
+                 letter-spacing:.01em; }
   .dots::after { content:''; animation: dots 1.4s steps(1,end) infinite; }
   @keyframes dots { 0%{content:'';} 25%{content:'.';} 50%{content:'..';} 75%{content:'...';} }
 
@@ -167,17 +194,17 @@
 </head>
 <body>
 <header>
-  <h1><span class="ball">🏀</span>nba‑<em>viz</em></h1>
-  <span>ask for NBA charts in plain English</span>
+  <h1><span class="ball">🏀</span>Court&nbsp;<em>Vision</em></h1>
+  <span>the NBA, charted on demand</span>
   <div class="themes" id="themes"></div>
 </header>
 
 <div id="chat">
   <div class="welcome" id="welcome">
     <div class="big">🏀</div>
-    <h2>Settle the argument with a chart.</h2>
-    <p>Five seasons of NBA data — every box score, 1.2 million shot locations,
-       defender-distance splits — one question away.</p>
+    <h2>See the whole floor.</h2>
+    <p>Five seasons of NBA data — box scores, 1.2&nbsp;million shots, clutch,
+       hustle and tracking defense. Ask a question, get the chart.</p>
   </div>
 </div>
 
@@ -206,7 +233,7 @@ const PLOTLY_CONFIG = {
   responsive: true,
   displaylogo: false,
   modeBarButtonsToRemove: ['lasso2d', 'select2d', 'autoScale2d', 'zoomIn2d', 'zoomOut2d'],
-  toImageButtonOptions: { format: 'png', scale: 2, filename: 'nba-viz' }
+  toImageButtonOptions: { format: 'png', scale: 2, filename: 'court-vision' }
 };
 
 document.querySelectorAll('.hints a').forEach(a =>
@@ -398,6 +425,33 @@ function showQuery(message) {
   chat.appendChild(q);
 }
 
+function showLoader() {
+  const el = document.createElement('div');
+  el.className = 'loader';
+  el.innerHTML = `
+    <div class="court-scene">
+      <svg viewBox="0 0 260 170" aria-hidden="true">
+        <rect x="231" y="44" width="5" height="58" rx="1.5" fill="rgba(236,231,221,0.30)"/>
+        <rect x="210" y="64" width="22" height="20" rx="2" fill="none"
+              stroke="rgba(236,231,221,0.28)" stroke-width="2"/>
+        <g class="net" stroke="rgba(236,231,221,0.55)" stroke-width="1.5"
+           fill="none" stroke-linecap="round">
+          <path d="M187 88 L197 118 M196 88 L202 118 M205 88 L205 118
+                   M214 88 L208 118 M223 88 L213 118"/>
+          <path d="M192 100 H218 M197 110 H213" stroke-width="1.2"/>
+        </g>
+        <ellipse cx="205" cy="88" rx="19" ry="5" fill="none"
+                 stroke="var(--accent)" stroke-width="3.5"/>
+      </svg>
+      <div class="ball-shadow"></div>
+      <span class="ball">🏀</span>
+    </div>
+    <div class="loader-text">Drawing it up<span class="dots"></span></div>`;
+  chat.appendChild(el);
+  el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  return el;
+}
+
 form.addEventListener('submit', async (e) => {
   e.preventDefault();
   const message = input.value.trim();
@@ -408,11 +462,7 @@ form.addEventListener('submit', async (e) => {
   input.value = '';
   send.disabled = true;
   showQuery(message);
-  const pending = addBubble('assistant', '');
-  pending.classList.add('thinking');
-  pending.innerHTML =
-    '<span class="dribble"><span class="floor"></span><span class="ball">🏀</span></span>' +
-    '<span>crunching the numbers<span class="dots"></span></span>';
+  const loader = showLoader();
   try {
     const res = await fetch('/api/chat', {
       method: 'POST',
@@ -421,12 +471,12 @@ form.addEventListener('submit', async (e) => {
     });
     if (!res.ok) throw new Error((await res.json()).detail || res.statusText);
     const data = await res.json();
-    pending.parentElement.remove();
+    loader.remove();
     if (data.figures && data.figures.length) addCharts(data.figures);
     if (data.reply) addBubble('assistant', data.reply, { markdown: true });
   } catch (err) {
-    pending.classList.remove('thinking');
-    pending.textContent = 'Something went wrong: ' + err.message;
+    loader.remove();
+    addBubble('assistant', 'Something went wrong — ' + err.message + '. Try again?');
   } finally {
     send.disabled = false;
     input.focus();

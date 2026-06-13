@@ -1,5 +1,5 @@
 ---
-title: nba-viz
+title: Court Vision
 emoji: 🏀
 colorFrom: gray
 colorTo: yellow
@@ -8,9 +8,9 @@ app_port: 7860
 pinned: false
 ---
 
-# 🏀 nba-viz — ask for NBA charts in plain English
+# 🏀 Court Vision — NBA charts in plain English
 
-**[Try it live →](https://henrild-nba-viz.hf.space)**
+**[Try it live →](https://henrild-nba-viz.hf.space)**  ·  *(repo/Space slug stays `nba-viz`)*
 
 Type a basketball question, get an interactive chart. No dropdowns, no query
 builder — just ask:
