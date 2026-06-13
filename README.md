@@ -42,8 +42,12 @@ exact spellings. This is what makes cheap models (Kimi, Qwen, Mistral) viable.
    ```sh
    psql "$DATABASE_URL" -f db/schema.sql
    ```
-2. **Environment** — copy `.env.example` to `.env` and fill in
-   `DATABASE_URL`, `OPENROUTER_API_KEY`, `OPENROUTER_MODEL`.
+2. **Environment** — create a `.env` file in the repo root:
+   ```ini
+   DATABASE_URL=postgresql+psycopg://user:pass@host/db?sslmode=require
+   OPENROUTER_API_KEY=sk-or-v1-...
+   OPENROUTER_MODEL=moonshotai/kimi-k2
+   ```
 3. **Install**:
    ```sh
    python -m venv .venv && .venv\Scripts\activate   # Windows
