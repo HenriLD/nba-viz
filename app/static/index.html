@@ -67,9 +67,14 @@
     animation: chartIn .5s cubic-bezier(.2,.7,.3,1) both;
     transition: box-shadow .25s, border-color .25s;
   }
-  /* Multiple charts in one answer render side by side, stacking on narrow screens. */
-  .chart-group.multi { display:flex; flex-wrap:wrap; gap:14px; margin:14px 0; }
-  .chart-group.multi .chart { flex:1 1 360px; min-width:0; margin:0; }
+  /* Multiple charts in one answer render side by side, stacking on narrow screens.
+     The group breaks out wider than the 900px text column so the charts aren't
+     cramped; capped at 94vw so it never overflows the viewport. */
+  .chart-group.multi {
+    display:flex; flex-wrap:wrap; gap:16px; margin:14px 0;
+    width:min(1150px, 94vw); position:relative; left:50%; transform:translateX(-50%);
+  }
+  .chart-group.multi .chart { flex:1 1 460px; min-width:0; margin:0; }
   .chart:hover {
     box-shadow: 0 10px 34px rgba(0,0,0,0.45);
     border-color: rgba(232,131,58,0.3);
