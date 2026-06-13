@@ -24,6 +24,12 @@
     content:''; position:fixed; inset:0; z-index:-1; pointer-events:none;
     background: radial-gradient(ellipse 80% 60% at 50% -12%,
                 rgba(232,131,58,0.07), transparent 70%);
+    transform-origin:50% 0;
+    animation: breathe 9s ease-in-out infinite;
+  }
+  @keyframes breathe {
+    0%,100% { opacity:.7;  transform:scale(1); }
+    50%     { opacity:1;   transform:scale(1.12); }
   }
 
   header {
@@ -38,7 +44,7 @@
   header span { color:var(--muted); font-size:13px; }
 
   #chat { max-width: 900px; margin:0 auto; padding:20px 16px 150px; }
-  .msg { margin:18px 0; line-height:1.55; display:flex; }
+  .msg { margin:18px 0; line-height:1.55; display:flex; animation: rise .4s cubic-bezier(.2,.7,.3,1) both; }
   .msg.user { justify-content:flex-end; }
   .msg .bubble {
     padding:11px 16px; border-radius:14px; max-width:78%;
@@ -52,16 +58,41 @@
     background:var(--panel); border:1px solid var(--border);
     border-bottom-left-radius:4px;
   }
+  @keyframes rise { from { opacity:0; transform:translateY(10px); } to { opacity:1; transform:none; } }
 
   .chart {
     background:var(--card); border:1px solid var(--border);
     border-radius:14px; margin:14px 0; min-height:300px; overflow:hidden;
     box-shadow: 0 6px 24px rgba(0,0,0,0.35);
+    animation: chartIn .5s cubic-bezier(.2,.7,.3,1) both;
+    transition: box-shadow .25s, border-color .25s;
   }
+  .chart:hover {
+    box-shadow: 0 10px 34px rgba(0,0,0,0.45);
+    border-color: rgba(232,131,58,0.3);
+  }
+  @keyframes chartIn { from { opacity:0; transform:translateY(14px) scale(.99); } to { opacity:1; transform:none; } }
 
-  .thinking { color:var(--muted); font-style:italic; }
-  .thinking .ball { display:inline-block; animation:bounce .6s ease infinite alternate; }
-  @keyframes bounce { from { transform:translateY(0) } to { transform:translateY(-5px) } }
+  /* Dribbling-basketball loader */
+  .thinking { color:var(--muted); font-style:italic; display:flex; align-items:flex-end; gap:11px; }
+  .dribble { position:relative; width:24px; height:30px; flex:none; }
+  .dribble .ball { position:absolute; left:2px; top:0; font-size:19px; line-height:1;
+    transform-origin:center bottom; animation: dribble .65s cubic-bezier(.45,0,.55,1) infinite; }
+  .dribble .floor { position:absolute; left:4px; bottom:1px; width:16px; height:4px;
+    border-radius:50%; background:rgba(0,0,0,.45); filter:blur(1px);
+    animation: floor .65s cubic-bezier(.45,0,.55,1) infinite; }
+  @keyframes dribble {
+    0%   { transform:translateY(-20px) scale(1,1); }
+    45%  { transform:translateY(0) scale(1.12,.86); }   /* squash on contact */
+    55%  { transform:translateY(0) scale(1.12,.86); }
+    100% { transform:translateY(-20px) scale(1,1); }
+  }
+  @keyframes floor {
+    0%,100% { transform:scaleX(.55); opacity:.18; }
+    50%     { transform:scaleX(1);   opacity:.5; }
+  }
+  .dots::after { content:''; animation: dots 1.4s steps(1,end) infinite; }
+  @keyframes dots { 0%{content:'';} 25%{content:'.';} 50%{content:'..';} 75%{content:'...';} }
 
   form {
     position:fixed; bottom:0; left:0; right:0;
@@ -75,29 +106,49 @@
     color:var(--ink); font-size:15px; font-family:inherit; outline:none;
     transition: border-color .15s;
   }
-  input:focus { border-color:var(--accent); }
+  input:focus { border-color:var(--accent); box-shadow:0 0 0 3px rgba(232,131,58,0.14); }
   input::placeholder { color:var(--muted); font-style:italic; }
   button {
     padding:13px 26px; border-radius:12px; border:none;
     background:var(--accent); color:#16100a; font-size:15px; font-weight:600;
-    cursor:pointer; font-family:inherit; transition: filter .15s;
+    cursor:pointer; font-family:inherit;
+    transition: filter .15s, transform .12s, box-shadow .15s;
   }
-  button:hover { filter:brightness(1.1); }
-  button:disabled { opacity:.45; cursor:default; }
+  button:hover { filter:brightness(1.1); box-shadow:0 4px 16px rgba(232,131,58,0.3); }
+  button:active { transform:scale(.96); }
+  button:disabled { opacity:.45; cursor:default; transform:none; box-shadow:none; }
 
   .hints { max-width:900px; margin:10px auto 0; display:flex; flex-wrap:wrap; gap:8px; }
   .hints a {
     color:var(--muted); font-size:12.5px; cursor:pointer; text-decoration:none;
     border:1px solid var(--border); border-radius:999px; padding:5px 12px;
-    transition: all .15s; background:rgba(24,31,38,0.6);
+    transition: color .18s, border-color .18s, transform .18s, background .18s;
+    background:rgba(24,31,38,0.6);
   }
-  .hints a:hover { color:var(--ink); border-color:var(--accent); }
+  .hints a:hover {
+    color:var(--ink); border-color:var(--accent); transform:translateY(-2px);
+    background:rgba(232,131,58,0.08);
+  }
 
-  .welcome { text-align:center; color:var(--muted); padding:60px 20px 20px; }
-  .welcome .big { font-size:42px; margin-bottom:10px; }
+  .welcome { text-align:center; color:var(--muted); padding:60px 20px 20px;
+             animation: rise .6s ease both; }
+  .welcome .big { font-size:42px; margin-bottom:10px; display:inline-block;
+                  animation: float 3.6s ease-in-out infinite; }
   .welcome h2 { color:var(--ink); font-weight:normal; font-style:italic;
                 font-size:22px; margin:0 0 8px; }
   .welcome p { font-size:14px; max-width:480px; margin:0 auto; line-height:1.6; }
+  @keyframes float {
+    0%,100% { transform:translateY(0) rotate(-4deg); }
+    50%     { transform:translateY(-10px) rotate(4deg); }
+  }
+
+  /* Header ball gives a little spin when you mouse over the wordmark */
+  header h1 .ball { display:inline-block; transition: transform .5s ease; }
+  header h1:hover .ball { transform: rotate(360deg); }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before { animation: none !important; transition: none !important; }
+  }
 </style>
 </head>
 <body>
@@ -184,7 +235,9 @@ form.addEventListener('submit', async (e) => {
   addBubble('user', message);
   const pending = addBubble('assistant', '');
   pending.classList.add('thinking');
-  pending.innerHTML = '<span class="ball">🏀</span> crunching the numbers…';
+  pending.innerHTML =
+    '<span class="dribble"><span class="floor"></span><span class="ball">🏀</span></span>' +
+    '<span>crunching the numbers<span class="dots"></span></span>';
   try {
     const res = await fetch('/api/chat', {
       method: 'POST',
