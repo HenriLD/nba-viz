@@ -22,15 +22,22 @@ class ChatRequest(BaseModel):
     # Single-turn by design: every question is independent, no conversation
     # history. Each request stands alone.
     message: str = Field(min_length=1, max_length=500)
+    theme: str | None = None   # chart color scheme id (see app.theme.THEMES)
 
 
 @app.post("/api/chat")
 def chat(req: ChatRequest):
     try:
-        return run_agent(req.message)
+        return run_agent(req.message, theme=req.theme)
     except Exception as e:  # surface a friendly error, log the real one
         log.exception("chat failed")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/themes")
+def themes():
+    from app.theme import theme_options
+    return {"themes": theme_options()}
 
 
 @app.get("/api/health")
@@ -51,6 +58,9 @@ def gallery():
 
     from app.charts import run_query_chart
     from app.templates import run_template
+    from app.theme import set_theme
+
+    set_theme(None)  # gallery always renders in the default theme
 
     template_cases = [
         ("player_stat_trend", {"player": "stephen curry", "stat": "pts",

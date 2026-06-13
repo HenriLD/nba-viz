@@ -44,6 +44,14 @@
   header h1:hover .ball { transform: rotate(360deg); }
   header h1 em { color:var(--accent); font-style:italic; }
   header span { color:var(--muted); font-size:13px; }
+  .themes { margin-left:auto; display:flex; gap:8px; align-items:center; }
+  .themes .lbl { color:var(--muted); font-size:12px; letter-spacing:.02em; }
+  .swatch {
+    width:22px; height:22px; border-radius:50%; cursor:pointer; padding:0;
+    border:2px solid var(--border); transition: transform .15s, box-shadow .15s;
+  }
+  .swatch:hover { transform:scale(1.14); }
+  .swatch.active { box-shadow:0 0 0 2px var(--bg), 0 0 0 4px var(--accent); }
 
   #chat { max-width: 860px; margin:0 auto; padding:24px 16px 130px; }
   /* Single-turn: each question is shown as a heading, not a chat bubble. */
@@ -161,6 +169,7 @@
 <header>
   <h1><span class="ball">🏀</span>nba‑<em>viz</em></h1>
   <span>ask for NBA charts in plain English</span>
+  <div class="themes" id="themes"></div>
 </header>
 
 <div id="chat">
@@ -202,6 +211,68 @@ const PLOTLY_CONFIG = {
 
 document.querySelectorAll('.hints a').forEach(a =>
   a.addEventListener('click', () => { input.value = a.textContent; form.requestSubmit(); }));
+
+// ---- Theme picker -------------------------------------------------------
+let activeTheme = localStorage.getItem('nbaviz-theme') || 'broadcast';
+const THEMES = {};                 // id -> {palette, series, heat}
+let renderedItems = [];            // {div, figure} currently on screen
+let renderedTheme = activeTheme;   // the theme those figures are colored in
+
+async function loadThemes() {
+  let list;
+  try { list = (await (await fetch('/api/themes')).json()).themes; }
+  catch (e) { return; }
+  const box = document.getElementById('themes');
+  box.innerHTML = '<span class="lbl">Theme</span>';
+  if (!list.some(t => t.id === activeTheme)) activeTheme = renderedTheme = 'broadcast';
+  list.forEach(t => {
+    THEMES[t.id] = t;
+    const b = document.createElement('button');
+    b.className = 'swatch' + (t.id === activeTheme ? ' active' : '');
+    b.title = t.label;
+    b.style.background = `linear-gradient(135deg, ${t.palette.accent} 0 50%, ${t.palette.accent2} 50% 100%)`;
+    b.style.borderColor = t.palette.card;
+    b.addEventListener('click', () => {
+      activeTheme = t.id;
+      localStorage.setItem('nbaviz-theme', t.id);
+      document.querySelectorAll('.swatch').forEach(s => s.classList.remove('active'));
+      b.classList.add('active');
+      recolorRendered();           // instantly recolor whatever's on screen
+    });
+    box.appendChild(b);
+  });
+}
+
+// Build a value->value color map from one theme's colors to another's.
+function colorMap(from, to) {
+  const m = {};
+  for (const k in from.palette) if (to.palette[k]) m[from.palette[k].toLowerCase()] = to.palette[k];
+  from.series.forEach((c, i) => { if (to.series[i]) m[c.toLowerCase()] = to.series[i]; });
+  return m;
+}
+function recolor(obj, map, heat) {
+  if (Array.isArray(obj)) return obj.map(x => recolor(x, map, heat));
+  if (obj && typeof obj === 'object') {
+    const o = {};
+    for (const k in obj) o[k] = (k === 'colorscale') ? heat : recolor(obj[k], map, heat);
+    return o;
+  }
+  if (typeof obj === 'string') return map[obj.toLowerCase()] || obj;
+  return obj;
+}
+function recolorRendered() {
+  if (activeTheme === renderedTheme || !renderedItems.length) { renderedTheme = activeTheme; return; }
+  const from = THEMES[renderedTheme], to = THEMES[activeTheme];
+  if (!from || !to) { renderedTheme = activeTheme; return; }
+  const map = colorMap(from, to);
+  renderedItems.forEach(it => {
+    it.figure = { data: recolor(it.figure.data, map, to.heat),
+                  layout: recolor(it.figure.layout, map, to.heat) };
+    Plotly.react(it.div, it.figure.data, it.figure.layout, PLOTLY_CONFIG);
+  });
+  renderedTheme = activeTheme;
+}
+loadThemes();
 
 function escapeHtml(s) {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -299,6 +370,8 @@ function addCharts(figures) {
     group.appendChild(div);
     return { div, figure };
   });
+  renderedItems = items;          // remember for instant theme recolor
+  renderedTheme = activeTheme;    // server built these in the active theme
 
   Promise.all(items.map(({ div, figure }) =>
     Plotly.newPlot(div, figure.data, figure.layout, PLOTLY_CONFIG)
@@ -344,7 +417,7 @@ form.addEventListener('submit', async (e) => {
     const res = await fetch('/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message })
+      body: JSON.stringify({ message, theme: activeTheme })
     });
     if (!res.ok) throw new Error((await res.json()).detail || res.statusText);
     const data = await res.json();

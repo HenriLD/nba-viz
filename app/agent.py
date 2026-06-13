@@ -296,12 +296,16 @@ def _dispatch(name: str, args: dict):
     raise ValueError(f"Unknown tool {name}")
 
 
-def run_agent(message: str) -> dict:
+def run_agent(message: str, theme: str | None = None) -> dict:
     """Answer one question. Single-turn by design — no conversation history;
     each question is independent.
 
+    `theme` selects the chart color scheme (see app.theme.THEMES).
+
     Returns {"reply": str, "figures": list[dict]} — one entry per chart, in
     render order, so the UI can lay several out side by side."""
+    from app.theme import set_theme
+    set_theme(theme)
     client = _client()
     messages = [{"role": "system", "content": system_prompt()},
                 {"role": "user", "content": message}]

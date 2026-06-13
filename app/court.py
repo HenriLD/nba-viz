@@ -41,7 +41,7 @@ def court_traces() -> list[go.Scatter]:
     # Painted area fill (subtle warm tint under everything else)
     t.append(go.Scatter(
         x=[-80, 80, 80, -80, -80], y=[-47.5, -47.5, 142.5, 142.5, -47.5],
-        mode="lines", fill="toself", fillcolor="rgba(232,131,58,0.05)",
+        mode="lines", fill="toself", fillcolor=PALETTE["paint"],
         line=dict(width=0), hoverinfo="skip", showlegend=False))
 
     # Boundary: baseline, sidelines, half-court line

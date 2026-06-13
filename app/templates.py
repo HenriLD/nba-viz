@@ -291,7 +291,7 @@ def _league_leaders(params: dict) -> ChartResult:
         raise ValueError(f"No data for {season}.")
 
     df = df.iloc[::-1]
-    colors = [PALETTE["accent"] if i == len(df) - 1 else "rgba(232,131,58,0.55)"
+    colors = [PALETTE["accent"] if i == len(df) - 1 else PALETTE["accent_dim"]
               for i in range(len(df))]
     fig = go.Figure(go.Bar(
         x=df["val"], y=df["player_name"], orientation="h",
