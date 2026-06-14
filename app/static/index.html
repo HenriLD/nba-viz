@@ -197,7 +197,7 @@
      Breaks out wider than the 860px chat column, same trick as chart-group. */
   .stage { display:flex; gap:16px; align-items:flex-start; justify-content:center;
            width:min(1250px, 96vw); position:relative; left:50%; transform:translateX(-50%);
-           margin:16px 0; }
+           margin:16px 0; scroll-margin-top:72px; }
   .stage .chart-area { flex:1 1 auto; min-width:0; }
   .stage .chart-group { display:flex; flex-wrap:wrap; gap:16px; }
   .stage .chart-group .chart { flex:1 1 360px; min-width:0; margin:0; }
@@ -236,10 +236,17 @@
   .ecard .pager .count { margin-left:auto; color:var(--muted); font-size:10px;
                          letter-spacing:.03em; }
   @media (max-width: 920px) {
-    .stage { flex-direction:column; align-items:stretch; left:auto; transform:none; width:auto; }
-    .rail { width:auto; flex:none; }
-    .ecard { position:static; }
+    /* Keep the chart the main event: it spans the full width on its own line,
+       with the entity cards as a compact secondary row beneath it. */
+    .stage { flex-flow:row wrap; align-items:flex-start; left:auto; transform:none;
+             width:auto; gap:12px; }
+    .stage .chart-area { order:1; flex:1 1 100%; }
+    .rail { order:2; flex:1 1 0; width:auto; min-width:0; }
     .rail.team { order:3; }
+    .ecard { position:static; padding:13px 13px 11px; }
+    .ecard .photo { height:84px; margin-bottom:9px; }
+    .ecard .name { font-size:15px; }
+    .ecard .egrid { gap:9px 6px; margin:10px 0 2px; }
   }
 
   @media (prefers-reduced-motion: reduce) {
@@ -594,7 +601,10 @@ function addStage(figures, ents) {
   if (right) stage.appendChild(right);
   chat.appendChild(stage);               // whole flex row in the DOM first...
   if (group) renderFigures(group, figures);   // ...then charts measure correctly
-  stage.scrollIntoView({ behavior: 'smooth', block: 'end' });
+  // On mobile the cards sit below the chart, so land on the chart (top of the
+  // stage), not the cards; on desktop they're side by side, so end is fine.
+  const mobile = matchMedia('(max-width: 920px)').matches;
+  stage.scrollIntoView({ behavior: 'smooth', block: mobile ? 'start' : 'end' });
 }
 
 function showQuery(message) {
