@@ -88,7 +88,8 @@ def gallery():
         ("player_split", {"player": "luka doncic", "stat": "pts", "split": "win_loss"}),
         ("player_split", {"player": "nikola jokic", "stat": "reb", "split": "rest"}),
         ("stat_distribution", {"player": "nikola jokic", "stat": "pts", "split": "win_loss"}),
-        ("stat_distribution", {"player": "stephen curry", "stat": "pts"}),
+        ("stat_distribution", {"players": ["nikola jokic", "joel embiid", "luka doncic"], "stat": "pts"}),
+        ("stat_distribution", {"teams": ["lakers", "celtics"], "stat": "pts"}),
     ]
     query_cases = [
         ("Curry: home vs away 3P% this season", {

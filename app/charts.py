@@ -19,12 +19,6 @@ CHART_TYPES = ["bar", "grouped_bar", "line", "scatter", "horizontal_bar",
 TRANSFORMS = ["none", "rolling_mean", "cumulative", "index_to_100", "rank"]
 
 
-def _rgba(hex_str: str, alpha: float) -> str:
-    h = hex_str.lstrip("#")
-    r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
-    return f"rgba({r},{g},{b},{alpha})"
-
-
 # ------------------------------------------------------------- transforms
 
 def _apply_transform(df: pd.DataFrame, y: str, transform: str, series: str | None,
@@ -136,17 +130,19 @@ def _distribution(df, x, y, series, kind):
         x if (x and x in df.columns and x != val) else None)
 
     def add(values, name, color, show_legend):
+        # Solid theme color + trace opacity (not an rgba fill) so the client-side
+        # theme recolor — which maps exact palette/series color strings — can
+        # recolor the fill too when the user switches themes.
         if kind == "violin":
             fig.add_trace(go.Violin(
-                y=values, name=name, line_color=color, fillcolor=_rgba(color, 0.30),
-                opacity=0.9, box_visible=False, meanline_visible=True, points=False,
+                y=values, name=name, line_color=color, fillcolor=color,
+                opacity=0.55, box_visible=False, meanline_visible=False, points=False,
                 scalemode="width", showlegend=show_legend, hoveron="violins"))
         else:
             fig.add_trace(go.Box(
-                y=values, name=name, line=dict(color=color),
-                fillcolor=_rgba(color, 0.22), opacity=0.92, boxpoints="all",
-                jitter=0.3, pointpos=0, showlegend=show_legend,
-                marker=dict(color=color, size=4, opacity=0.55),
+                y=values, name=name, line=dict(color=color), fillcolor=color,
+                opacity=0.5, boxpoints="all", jitter=0.3, pointpos=0,
+                showlegend=show_legend, marker=dict(color=color, size=4, opacity=0.6),
                 hovertemplate="%{y}<extra>" + name + "</extra>"))
 
     fig = go.Figure()

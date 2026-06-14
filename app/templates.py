@@ -55,12 +55,6 @@ def _fmt(val: float, stat: str) -> str:
     return f"{val:.1%}" if _is_pct(stat) else f"{val:.1f}"
 
 
-def _rgba(hex_str: str, alpha: float) -> str:
-    h = hex_str.lstrip("#")
-    r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
-    return f"rgba({r},{g},{b},{alpha})"
-
-
 # ---------------------------------------------------------------- templates
 
 def _player_stat_trend(params: dict) -> ChartResult:
@@ -497,73 +491,100 @@ def _player_split(params: dict) -> ChartResult:
 
 
 def _stat_distribution(params: dict) -> ChartResult:
-    """The full game-by-game spread of a stat (violin + inner box + every game
-    as a dot), optionally split into two distributions to compare — far more
-    informative than a single average bar."""
-    p = resolve_player(params["player"])
+    """Game-by-game DISTRIBUTION of a stat as violins (box for tiny samples).
+    Three modes: ONE player/team split by win_loss/home_away; SEVERAL players;
+    or SEVERAL teams — compared side by side. Shows the full spread, not just
+    an average."""
     season = _season(params)
     stat = validate_stat(params.get("stat", "pts"))
+    label = stat_label(stat)
+    pctfmt = ".0%" if _is_pct(stat) else None
     split = params.get("split") or "none"
     if split not in ("none", "win_loss", "home_away"):
         raise ValueError("split must be 'none', 'win_loss', or 'home_away'.")
-    label = stat_label(stat)
-    pctfmt = ".0%" if _is_pct(stat) else None
 
-    case = SPLITS[split][0] if split != "none" else None
-    sel = f"{case} AS split, " if case else ""
-    df = query_df(f"""
-        SELECT {sel}{_stat_select(stat, agg=False)} AS val
-        FROM player_game_logs
-        WHERE player_id = :pid AND season = :season
-          AND season_type = 'Regular Season'
-    """, {"pid": p.player_id, "season": season}).dropna(subset=["val"])
-    if df.empty:
-        raise ValueError(f"No games found for {p.full_name} in {season}.")
+    players = params.get("players") or (
+        [params["player"]] if params.get("player") else [])
+    teams = params.get("teams") or (
+        [params["team"]] if params.get("team") else [])
+    if players:
+        rows = [(p.player_id, p.full_name) for p in (resolve_player(n) for n in players)]
+        table, id_col = "player_game_logs", "player_id"
+    elif teams:
+        rows = [(t.team_id, t.full_name) for t in (resolve_team(n) for n in teams)]
+        table, id_col = "team_game_logs", "team_id"
+    else:
+        raise ValueError("stat_distribution needs a player, players, team, or teams.")
+
+    def fetch(idv, split_case):
+        sel = f"{split_case} AS split, " if split_case else ""
+        return query_df(f"""
+            SELECT {sel}{_stat_select(stat, agg=False)} AS val
+            FROM {table}
+            WHERE {id_col} = :id AND season = :season
+              AND season_type = 'Regular Season'
+        """, {"id": idv, "season": season}).dropna(subset=["val"])
 
     fig = go.Figure()
 
     def add(values, name, color, show_legend):
         # Few games → a violin's smoothed shape is misleading; fall back to a box.
+        # Solid theme color + opacity (not an rgba fill) keeps it recolorable.
         if len(values) < 8:
             fig.add_trace(go.Box(
-                y=values, name=name, line=dict(color=color),
-                fillcolor=_rgba(color, 0.22), opacity=0.92, boxpoints="all",
-                jitter=0.3, pointpos=0, showlegend=show_legend,
-                marker=dict(color=color, size=4, opacity=0.55),
+                y=values, name=name, line=dict(color=color), fillcolor=color,
+                opacity=0.5, boxpoints="all", jitter=0.3, pointpos=0,
+                showlegend=show_legend, marker=dict(color=color, size=4, opacity=0.6),
                 hovertemplate="%{y}<extra>" + name + "</extra>"))
         else:
             fig.add_trace(go.Violin(
-                y=values, name=name, line_color=color, fillcolor=_rgba(color, 0.30),
-                opacity=0.9, box_visible=False, meanline_visible=True, points=False,
+                y=values, name=name, line_color=color, fillcolor=color, opacity=0.55,
+                box_visible=False, meanline_visible=False, points=False,
                 scalemode="width", showlegend=show_legend, hoveron="violins"))
 
     def describe(s) -> str:
         return (f"median {_fmt(s.median(), stat)}, mean {_fmt(s.mean(), stat)}, "
                 f"spread {_fmt(s.std(), stat)} SD over {s.count()} games")
 
-    if split == "none":
-        add(df["val"], p.full_name.split()[-1], PALETTE["accent"], False)
-        title = f"{p.full_name} — {label} distribution"
-        subtitle = f"{season} regular season · game-by-game spread"
-        summary = f"{label}: {describe(df['val'])}."
+    parts = []
+    if len(rows) >= 2:
+        # Compare entities — one violin each.
+        for i, (idv, name) in enumerate(rows):
+            df = fetch(idv, None)
+            if df.empty:
+                raise ValueError(f"No games found for {name} in {season}.")
+            short = name.split()[-1]
+            add(df["val"], short, SERIES[i % len(SERIES)], True)
+            parts.append(f"{short}: {describe(df['val'])}")
+        title = f"{label} distribution"
+        subtitle = f"{season} regular season · " + " vs. ".join(
+            n.split()[-1] for _, n in rows)
     else:
-        order = (["In wins", "In losses"] if split == "win_loss"
-                 else ["Home", "Away"])
-        colors = {"In wins": PALETTE["made"], "In losses": PALETTE["missed"],
-                  "Home": PALETTE["accent"], "Away": PALETTE["accent2"]}
-        parts = []
-        for name in order:
-            g = df[df["split"] == name]["val"]
-            if g.count():
-                add(g, name, colors[name], True)
-                parts.append(f"{name}: {describe(g)}")
-        title = f"{p.full_name} — {label} {SPLITS[split][1]}"
+        idv, name = rows[0]
+        if split != "none":
+            df = fetch(idv, SPLITS[split][0])
+            order = (["In wins", "In losses"] if split == "win_loss"
+                     else ["Home", "Away"])
+            colors = {"In wins": PALETTE["made"], "In losses": PALETTE["missed"],
+                      "Home": PALETTE["accent"], "Away": PALETTE["accent2"]}
+            for nm in order:
+                g = df[df["split"] == nm]["val"]
+                if g.count():
+                    add(g, nm, colors[nm], True)
+                    parts.append(f"{nm}: {describe(g)}")
+            title = f"{name} — {label} {SPLITS[split][1]}"
+        else:
+            df = fetch(idv, None)
+            if df.empty:
+                raise ValueError(f"No games found for {name} in {season}.")
+            add(df["val"], name.split()[-1], PALETTE["accent"], False)
+            parts.append(f"{label}: {describe(df['val'])}")
+            title = f"{name} — {label} distribution"
         subtitle = f"{season} regular season · game-by-game spread"
-        summary = "; ".join(parts)
 
     fig.update_yaxes(title_text=label, tickformat=pctfmt, zeroline=False)
     theme.style(fig, title, subtitle=subtitle)
-    return ChartResult(fig, summary)
+    return ChartResult(fig, "; ".join(parts))
 
 
 CATALOG: dict[str, Template] = {t.id: t for t in [
@@ -614,14 +635,16 @@ CATALOG: dict[str, Template] = {t.id: t for t in [
              "If the user wants the spread/distribution, use stat_distribution.",
              ["player"], _player_split, ["season", "stat", "split"]),
     Template("stat_distribution",
-             "The full game-by-game DISTRIBUTION of one player's stat — a "
-             "violin/box plot showing median, quartiles and every game as a dot, "
-             "not just the average. Optionally split into two with 'win_loss' or "
-             "'home_away' to compare shapes. Use whenever the question mentions a "
-             "distribution, spread, consistency, range, or 'how often' for a "
-             "player's per-game stat (e.g. 'distribution of X's points in wins "
-             "vs losses', 'how consistent is X's scoring').",
-             ["player"], _stat_distribution, ["season", "stat", "split"]),
+             "Game-by-game DISTRIBUTION of a stat as violin plots — the full "
+             "spread, not just the average. Three modes: (1) ONE player/team "
+             "split by 'win_loss' or 'home_away'; (2) SEVERAL players compared "
+             "(pass 'players'); (3) SEVERAL teams compared (pass 'teams'). Use "
+             "whenever the question asks about a distribution, spread, "
+             "consistency, or range — e.g. 'distribution of X's points in wins "
+             "vs losses', 'how consistent is X', 'compare X and Y's scoring "
+             "distributions'.",
+             [], _stat_distribution,
+             ["player", "players", "team", "teams", "stat", "season", "split"]),
 ]}
 
 

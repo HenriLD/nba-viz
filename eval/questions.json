@@ -48,5 +48,9 @@
   {"q": "How consistent is Tatum's scoring game to game?",
    "template_id": "stat_distribution", "params": {"player": "tatum"}},
   {"q": "Show the spread of Luka's assists at home vs on the road",
-   "template_id": "stat_distribution", "params": {"player": "luka", "stat": "ast", "split": "home_away"}}
+   "template_id": "stat_distribution", "params": {"player": "luka", "stat": "ast", "split": "home_away"}},
+  {"q": "Compare the scoring distributions of Jokic and Embiid",
+   "template_id": "stat_distribution", "params": {"players": ["jokic", "embiid"]}},
+  {"q": "Lakers vs Celtics points per game distribution",
+   "template_id": "stat_distribution", "params": {"teams": ["lakers", "celtics"]}}
 ]

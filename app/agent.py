@@ -69,6 +69,7 @@ RENDER_CHART_TOOL = {
                         "player": {"type": "string"},
                         "players": {"type": "array", "items": {"type": "string"}},
                         "team": {"type": "string"},
+                        "teams": {"type": "array", "items": {"type": "string"}},
                         "season": {"type": "string",
                                    "description": "e.g. '2024-25'. Omit for current."},
                         "stat": {"type": "string", "enum": ALL_STATS},
