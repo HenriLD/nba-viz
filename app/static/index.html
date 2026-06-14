@@ -193,6 +193,55 @@
   .welcome p { font-size:14.5px; max-width:470px; margin:0 auto; line-height:1.65; }
   @keyframes float { 0%,100%{transform:translateY(0) rotate(-4deg);} 50%{transform:translateY(-10px) rotate(4deg);} }
 
+  /* Stage = chart flanked by entity side-cards (players left, teams right).
+     Breaks out wider than the 860px chat column, same trick as chart-group. */
+  .stage { display:flex; gap:16px; align-items:flex-start; justify-content:center;
+           width:min(1250px, 96vw); position:relative; left:50%; transform:translateX(-50%);
+           margin:16px 0; }
+  .stage .chart-area { flex:1 1 auto; min-width:0; }
+  .stage .chart-group { display:flex; flex-wrap:wrap; gap:16px; }
+  .stage .chart-group .chart { flex:1 1 360px; min-width:0; margin:0; }
+  .rail { flex:0 0 198px; width:198px; }
+  .rail.flip { cursor:pointer; }
+
+  .ecard { background:var(--panel); border:1px solid var(--border); border-radius:16px;
+           padding:15px 15px 13px; box-shadow:0 6px 22px rgba(0,0,0,.26);
+           position:sticky; top:84px; animation: chartIn .45s cubic-bezier(.2,.7,.3,1) both; }
+  .rail.flip .ecard { transition: border-color .2s, transform .2s, box-shadow .2s; }
+  .rail.flip:hover .ecard { border-color:color-mix(in srgb, var(--accent) 35%, transparent);
+                            transform:translateY(-2px); box-shadow:0 10px 30px rgba(0,0,0,.34); }
+  .ecard .photo { height:104px; border-radius:12px; margin-bottom:11px; overflow:hidden;
+                  display:flex; align-items:center; justify-content:center;
+                  background:color-mix(in srgb, var(--accent) 8%, transparent); }
+  .ecard.player .photo img { width:100%; height:100%; object-fit:cover; object-position:center 16%; }
+  .ecard.team .photo img { max-width:72%; max-height:66px; object-fit:contain; }
+  .ecard .photo.noimg img { display:none; }
+  .ecard .photo.noimg::after { content:'🏀'; font-size:30px; opacity:.35; }
+  .ecard .name { font-family:var(--serif); font-weight:600; font-size:16.5px;
+                 line-height:1.18; color:var(--ink); }
+  .ecard .ebio { color:var(--muted); font-size:11.5px; margin-top:4px; letter-spacing:.01em; }
+  .ecard .egrid { display:grid; grid-template-columns:repeat(3,1fr); gap:11px 6px; margin:13px 0 2px; }
+  .ecard .stat { display:flex; flex-direction:column; line-height:1.1; }
+  .ecard .stat .v { font-size:15px; font-weight:600; color:var(--ink); font-variant-numeric:tabular-nums; }
+  .ecard .stat .k { font-size:9.5px; color:var(--muted); text-transform:uppercase;
+                    letter-spacing:.05em; margin-top:2px; }
+  .ecard .cap { color:var(--muted); font-size:10px; margin-top:8px; opacity:.85; }
+  .ecard .nlink { display:inline-block; margin-top:9px; color:var(--accent); font-size:12px;
+                  text-decoration:none; font-weight:500; }
+  .ecard .nlink:hover { text-decoration:underline; }
+  .ecard .pager { display:flex; align-items:center; gap:6px; margin-top:12px;
+                  padding-top:11px; border-top:1px solid var(--border); }
+  .ecard .pager i { width:6px; height:6px; border-radius:50%; background:var(--border); }
+  .ecard .pager i.on { background:var(--accent); }
+  .ecard .pager .count { margin-left:auto; color:var(--muted); font-size:10px;
+                         letter-spacing:.03em; }
+  @media (max-width: 920px) {
+    .stage { flex-direction:column; align-items:stretch; left:auto; transform:none; width:auto; }
+    .rail { width:auto; flex:none; }
+    .ecard { position:static; }
+    .rail.team { order:3; }
+  }
+
   @media (prefers-reduced-motion: reduce) {
     *, *::before { animation: none !important; transition: none !important; }
   }
@@ -448,14 +497,10 @@ function squareHeight(div, figure) {
   return Math.round((w - (m.l || 0) - (m.r || 0)) * sq + (m.t || 0) + (m.b || 0));
 }
 
-function addCharts(figures) {
-  const group = document.createElement('div');
-  group.className = 'chart-group' + (figures.length > 1 ? ' multi' : '');
-  chat.appendChild(group);
-
-  // Append every card first so the flex row is fully laid out before any chart
-  // measures its width — otherwise side-by-side charts resize against a
-  // mid-layout width and render inconsistently.
+// Append every card first so the flex row is fully laid out before any chart
+// measures its width — otherwise side-by-side charts resize against a
+// mid-layout width and render inconsistently.
+function renderFigures(group, figures) {
   const items = figures.map(figure => {
     const div = document.createElement('div');
     div.className = 'chart';
@@ -478,7 +523,78 @@ function addCharts(figures) {
       requestAnimationFrame(() => items.forEach(({ div }) => Plotly.Plots.resize(div)));
     });
   });
+  return items;
+}
+
+// Charts alone, in the centered chat column (no entities named).
+function addCharts(figures) {
+  const group = document.createElement('div');
+  group.className = 'chart-group' + (figures.length > 1 ? ' multi' : '');
+  chat.appendChild(group);
+  renderFigures(group, figures);
   group.scrollIntoView({ behavior: 'smooth', block: 'end' });
+}
+
+// One entity box, flippable through `list` if more than one was mentioned.
+function entityCardHtml(c, total, idx) {
+  const stats = (c.stats || []).map(s =>
+    `<div class="stat"><span class="v">${escapeHtml(s.value)}</span>` +
+    `<span class="k">${escapeHtml(s.label)}</span></div>`).join('');
+  let pager = '';
+  if (total > 1) {
+    const dots = Array.from({ length: total },
+      (_, k) => `<i class="${k === idx ? 'on' : ''}"></i>`).join('');
+    pager = `<div class="pager">${dots}<span class="count">${idx + 1} / ${total} · tap to flip</span></div>`;
+  }
+  return `<div class="ecard ${c.kind}">
+    <div class="photo"><img src="${c.image}" alt="" loading="lazy"
+         onerror="this.parentElement.classList.add('noimg')"></div>
+    <div class="name">${escapeHtml(c.name)}</div>
+    ${c.bio ? `<div class="ebio">${escapeHtml(c.bio)}</div>` : ''}
+    ${stats ? `<div class="egrid">${stats}</div>` : ''}
+    ${c.caption ? `<div class="cap">${escapeHtml(c.caption)}</div>` : ''}
+    <a class="nlink" href="${c.href}" target="_blank" rel="noopener">NBA.com ↗</a>
+    ${pager}</div>`;
+}
+
+function railEl(list, kind) {
+  if (!list || !list.length) return null;
+  const rail = document.createElement('div');
+  rail.className = 'rail ' + kind;
+  let idx = 0;
+  const draw = () => { rail.innerHTML = entityCardHtml(list[idx], list.length, idx); };
+  draw();
+  if (list.length > 1) {                 // click anywhere (but the link) to flip
+    rail.classList.add('flip');
+    rail.addEventListener('click', e => {
+      if (e.target.closest('a.nlink')) return;
+      idx = (idx + 1) % list.length;
+      draw();
+    });
+  }
+  return rail;
+}
+
+// Chart(s) with entity side-cards: players on the left, teams on the right.
+function addStage(figures, ents) {
+  const stage = document.createElement('div');
+  stage.className = 'stage';
+  const left = railEl(ents.players, 'player');
+  const right = railEl(ents.teams, 'team');
+  let group = null;
+  if (left) stage.appendChild(left);
+  if (figures.length) {
+    const area = document.createElement('div');
+    area.className = 'chart-area';
+    group = document.createElement('div');
+    group.className = 'chart-group';
+    area.appendChild(group);
+    stage.appendChild(area);
+  }
+  if (right) stage.appendChild(right);
+  chat.appendChild(stage);               // whole flex row in the DOM first...
+  if (group) renderFigures(group, figures);   // ...then charts measure correctly
+  stage.scrollIntoView({ behavior: 'smooth', block: 'end' });
 }
 
 function showQuery(message) {
@@ -540,7 +656,10 @@ form.addEventListener('submit', async (e) => {
     if (!res.ok) throw new Error((await res.json()).detail || res.statusText);
     const data = await res.json();
     loader.remove();
-    if (data.figures && data.figures.length) addCharts(data.figures);
+    const ents = data.entities || { players: [], teams: [] };
+    const figs = data.figures || [];
+    if (ents.players.length || ents.teams.length) addStage(figs, ents);
+    else if (figs.length) addCharts(figs);
     if (data.reply) addBubble('assistant', data.reply, { markdown: true });
   } catch (err) {
     loader.remove();

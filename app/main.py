@@ -28,10 +28,18 @@ class ChatRequest(BaseModel):
 @app.post("/api/chat")
 def chat(req: ChatRequest):
     try:
-        return run_agent(req.message, theme=req.theme)
+        result = run_agent(req.message, theme=req.theme)
     except Exception as e:  # surface a friendly error, log the real one
         log.exception("chat failed")
         raise HTTPException(status_code=500, detail=str(e))
+    # Decorative entity side-cards (players/teams named in the question). No LLM
+    # and never fatal — a failure here must not sink an otherwise-good answer.
+    try:
+        from app.cards import cards_for
+        result["entities"] = cards_for(req.message)
+    except Exception:
+        log.warning("entity cards failed", exc_info=True)
+    return result
 
 
 @app.get("/api/themes")
