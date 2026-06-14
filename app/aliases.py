@@ -84,3 +84,22 @@ def _fold_key(s: str) -> str:
 
 # Pre-folded so lookups are O(1) against the resolver's folded keys.
 PLAYER_ALIASES = {_fold_key(k): v for k, v in _RAW.items()}
+
+
+# Colloquial team short-forms the NBA data doesn't carry (it stores only the
+# official city / nickname / abbreviation). alias -> 3-letter abbreviation.
+_TEAM_RAW = {
+    "sixers": "PHI", "philly": "PHI",
+    "wolves": "MIN", "twolves": "MIN", "t-wolves": "MIN", "t wolves": "MIN",
+    "cavs": "CLE",
+    "mavs": "DAL",
+    "blazers": "POR",
+    "dubs": "GSW", "golden state": "GSW",
+    "grizz": "MEM",
+    "pels": "NOP", "nola": "NOP",
+    "nugs": "DEN",
+    "clips": "LAC",
+    "wizz": "WAS",
+}
+
+TEAM_ALIASES = {_fold_key(k): v for k, v in _TEAM_RAW.items()}

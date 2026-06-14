@@ -15,7 +15,7 @@ active/retired status — the NBA.com link covers the rest.
 import re
 from functools import lru_cache
 
-from app.aliases import PLAYER_ALIASES
+from app.aliases import PLAYER_ALIASES, TEAM_ALIASES
 from app.entities import _fold, _team_index
 from core.db import query_df
 
@@ -83,8 +83,15 @@ def _name_index() -> dict[str, tuple[str, int]]:
             idx[alias] = hit
 
     # Teams last (override any surname collision like a city/nickname word).
-    for key, team in _team_index().items():
+    teams = _team_index()
+    for key, team in teams.items():
         idx[key] = ("team", team.team_id)
+    # Colloquial short-forms the DB doesn't carry (Sixers, Cavs, Mavs, Dubs...).
+    abbr_to_id = {t.abbreviation.lower(): t.team_id for t in teams.values()}
+    for alias, abbr in TEAM_ALIASES.items():
+        tid = abbr_to_id.get(abbr.lower())
+        if tid:
+            idx[alias] = ("team", tid)
     return idx
 
 

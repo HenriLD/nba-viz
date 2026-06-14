@@ -243,6 +243,7 @@
     .stage .chart-area { order:1; flex:1 1 100%; }
     .rail { order:2; flex:1 1 0; width:auto; min-width:0; }
     .rail.team { order:3; }
+    .rail.spacer { display:none; }   /* no empty column in the row below */
     .ecard { position:static; padding:13px 13px 11px; }
     .ecard .photo { height:84px; margin-bottom:9px; }
     .ecard .name { font-size:15px; }
@@ -582,15 +583,25 @@ function railEl(list, kind) {
   return rail;
 }
 
+function spacerRail() {
+  const d = document.createElement('div');
+  d.className = 'rail spacer';   // reserves a column so the chart keeps its size
+  return d;
+}
+
 // Chart(s) with entity side-cards: players on the left, teams on the right.
 function addStage(figures, ents) {
   const stage = document.createElement('div');
   stage.className = 'stage';
-  const left = railEl(ents.players, 'player');
-  const right = railEl(ents.teams, 'team');
+  const hasChart = figures.length > 0;
+  // When a chart is present, reserve BOTH side columns (an empty spacer if one
+  // side has no entity) so a lone card doesn't let the chart balloon into the
+  // gap. With no chart, just show the card(s).
+  const left = railEl(ents.players, 'player') || (hasChart ? spacerRail() : null);
+  const right = railEl(ents.teams, 'team') || (hasChart ? spacerRail() : null);
   let group = null;
   if (left) stage.appendChild(left);
-  if (figures.length) {
+  if (hasChart) {
     const area = document.createElement('div');
     area.className = 'chart-area';
     group = document.createElement('div');
