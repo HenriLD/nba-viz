@@ -534,10 +534,8 @@ def _stat_distribution(params: dict) -> ChartResult:
         else:
             fig.add_trace(go.Violin(
                 y=values, name=name, line_color=color, fillcolor=_rgba(color, 0.30),
-                opacity=0.9, box_visible=True, meanline_visible=True, points="all",
-                jitter=0.3, pointpos=0, scalemode="width", showlegend=show_legend,
-                marker=dict(color=color, size=4, opacity=0.5),
-                hovertemplate="%{y}<extra>" + name + "</extra>"))
+                opacity=0.9, box_visible=False, meanline_visible=True, points=False,
+                scalemode="width", showlegend=show_legend, hoveron="violins"))
 
     def describe(s) -> str:
         return (f"median {_fmt(s.median(), stat)}, mean {_fmt(s.mean(), stat)}, "
@@ -546,7 +544,7 @@ def _stat_distribution(params: dict) -> ChartResult:
     if split == "none":
         add(df["val"], p.full_name.split()[-1], PALETTE["accent"], False)
         title = f"{p.full_name} — {label} distribution"
-        subtitle = f"{season} regular season · each dot is one game"
+        subtitle = f"{season} regular season · game-by-game spread"
         summary = f"{label}: {describe(df['val'])}."
     else:
         order = (["In wins", "In losses"] if split == "win_loss"
@@ -560,7 +558,7 @@ def _stat_distribution(params: dict) -> ChartResult:
                 add(g, name, colors[name], True)
                 parts.append(f"{name}: {describe(g)}")
         title = f"{p.full_name} — {label} {SPLITS[split][1]}"
-        subtitle = f"{season} regular season · each dot is one game"
+        subtitle = f"{season} regular season · game-by-game spread"
         summary = "; ".join(parts)
 
     fig.update_yaxes(title_text=label, tickformat=pctfmt, zeroline=False)

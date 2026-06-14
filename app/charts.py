@@ -139,10 +139,8 @@ def _distribution(df, x, y, series, kind):
         if kind == "violin":
             fig.add_trace(go.Violin(
                 y=values, name=name, line_color=color, fillcolor=_rgba(color, 0.30),
-                opacity=0.9, box_visible=True, meanline_visible=True, points="all",
-                jitter=0.3, pointpos=0, scalemode="width", showlegend=show_legend,
-                marker=dict(color=color, size=4, opacity=0.5),
-                hovertemplate="%{y}<extra>" + name + "</extra>"))
+                opacity=0.9, box_visible=False, meanline_visible=True, points=False,
+                scalemode="width", showlegend=show_legend, hoveron="violins"))
         else:
             fig.add_trace(go.Box(
                 y=values, name=name, line=dict(color=color),
