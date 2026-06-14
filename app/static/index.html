@@ -217,11 +217,7 @@
 <form id="form">
   <div class="hints">
     <span class="lead">Try:</span>
-    <a>Jokic vs Embiid scoring by season</a>
-    <a>Where does Tatum like to shoot from?</a>
-    <a>Who leads the league in assists?</a>
-    <a>How does Luka shoot against tight defense?</a>
-    <a>Curry and Tatum shot charts side by side</a>
+    <!-- chips injected by populateHints() — a random few from a larger bank -->
   </div>
   <div class="row">
     <input id="input" placeholder="e.g. Show me Curry’s shot chart this season" autocomplete="off">
@@ -242,8 +238,59 @@ const PLOTLY_CONFIG = {
   toImageButtonOptions: { format: 'png', scale: 2, filename: 'court-vision' }
 };
 
-document.querySelectorAll('.hints a').forEach(a =>
-  a.addEventListener('click', () => { input.value = a.textContent; form.requestSubmit(); }));
+// A bank of questions the app can actually answer; a random few surface each
+// load so the landing state feels fresh and hints at the breadth of coverage.
+const HINT_BANK = [
+  "Jokic vs Embiid scoring by season",
+  "Where does Tatum like to shoot from?",
+  "Who leads the league in assists?",
+  "How does Luka shoot against tight defense?",
+  "Curry and Tatum shot charts side by side",
+  "Show me SGA's points game by game this season",
+  "Top 10 scorers in the league",
+  "Warriors three-point shooting trend",
+  "Giannis rebounds with a 10-game rolling average",
+  "Eastern Conference standings",
+  "Steph Curry's hot zones",
+  "Wembanyama's shot chart this season",
+  "Best clutch scorers in the league",
+  "Who gets the most deflections?",
+  "Tatum: home vs away scoring",
+  "Jokic's points in wins vs losses",
+  "Compare LeBron and Durant scoring by season",
+  "Shai's shot diet by zone",
+  "Who leads the league in blocks?",
+  "Lakers scoring margin by opponent",
+  "Anthony Edwards points this season",
+  "Nikola Jokic's triple-doubles this season",
+  "Best three-point shooters by volume",
+  "Who defends the rim best?",
+];
+const HINTS_SHOWN = 6;
+
+function populateHints() {
+  const box = document.querySelector('.hints');
+  box.querySelectorAll('a').forEach(a => a.remove());   // clear any prior pick
+  const pool = HINT_BANK.slice();
+  for (let i = pool.length - 1; i > 0; i--) {           // Fisher–Yates shuffle
+    const j = Math.floor(Math.random() * (i + 1));
+    [pool[i], pool[j]] = [pool[j], pool[i]];
+  }
+  pool.slice(0, HINTS_SHOWN).forEach(q => {
+    const a = document.createElement('a');
+    a.textContent = q;
+    box.appendChild(a);
+  });
+}
+populateHints();
+
+// Delegated so it works for whichever chips were injected this load.
+document.querySelector('.hints').addEventListener('click', e => {
+  const a = e.target.closest('a');
+  if (!a) return;
+  input.value = a.textContent;
+  form.requestSubmit();
+});
 
 // ---- Theme picker -------------------------------------------------------
 let activeTheme = localStorage.getItem('nbaviz-theme') || 'broadcast';
