@@ -93,10 +93,21 @@ def _rgba(hex_str: str, alpha: float) -> str:
     return f"rgba({r},{g},{b},{alpha})"
 
 
+# Page-level UI colors per theme (the chat shell, not just charts), so the
+# whole app re-skins. card/ink/muted/accent/accent2 are shared with charts above.
+_UI = {
+    "broadcast": {"bg": "#12161b", "panel": "#181f26", "border": "#232b34", "on_accent": "#16100a"},
+    "hardwood":  {"bg": "#e4d6ba", "panel": "#f6eed9", "border": "#cdbc97", "on_accent": "#2a1606"},
+    "arena":     {"bg": "#080a14", "panel": "#141829", "border": "#242b42", "on_accent": "#ffffff"},
+    "press":     {"bg": "#eceae6", "panel": "#ffffff", "border": "#d8d8d2", "on_accent": "#ffffff"},
+    "flame":     {"bg": "#140d0b", "panel": "#221813", "border": "#38271f", "on_accent": "#1a1006"},
+}
+
 # Derive translucent accents per theme so every chart color follows the scheme
 # (and lands in the client-side recolor map, since they're palette keys).
-for _t in THEMES.values():
+for _id, _t in THEMES.items():
     _p = _t["palette"]
+    _p.update(_UI[_id])
     _p["accent_dim"] = _rgba(_p["accent"], 0.55)   # secondary bars
     _p["paint"] = _rgba(_p["accent"], 0.06)         # court paint tint
 

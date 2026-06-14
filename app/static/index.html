@@ -10,13 +10,16 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,500;0,9..144,600;1,9..144,500&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
 <style>
-  /* Palette mirrors app/theme.py — keep them in sync. */
+  /* Defaults mirror the "broadcast" theme in app/theme.py; the active theme
+     overrides these custom properties at runtime (applyUITheme). */
   :root {
     --bg:#12161b; --card:#161c23; --panel:#181f26; --border:#232b34;
     --ink:#ece7dd; --muted:#8d97a1; --accent:#e8833a; --accent2:#45b8a4;
+    --on-accent:#16100a;
     --sans:'IBM Plex Sans', system-ui, -apple-system, sans-serif;
     --serif:'Fraunces', Georgia, serif;
   }
+  body { transition: background-color .3s ease, color .3s ease; }
   * { box-sizing: border-box; }
   html { scroll-behavior: smooth; }
   body {
@@ -26,7 +29,7 @@
   body::before {
     content:''; position:fixed; inset:0; z-index:-1; pointer-events:none;
     background: radial-gradient(ellipse 80% 60% at 50% -12%,
-                rgba(232,131,58,0.07), transparent 70%);
+                color-mix(in srgb, var(--accent) 8%, transparent), transparent 70%);
     transform-origin:50% 0; animation: breathe 9s ease-in-out infinite;
   }
   @keyframes breathe { 0%,100%{opacity:.7;transform:scale(1);} 50%{opacity:1;transform:scale(1.12);} }
@@ -34,7 +37,7 @@
   header {
     padding:18px 28px 15px; display:flex; align-items:baseline; gap:14px;
     border-bottom:1px solid var(--border);
-    position:sticky; top:0; background:rgba(18,22,27,0.92);
+    position:sticky; top:0; background:color-mix(in srgb, var(--bg) 88%, transparent);
     backdrop-filter: blur(8px); z-index:10;
   }
   header h1 { margin:0; font-family:var(--serif); font-size:26px; font-weight:600;
@@ -98,7 +101,8 @@
     width:min(1150px, 94vw); position:relative; left:50%; transform:translateX(-50%);
   }
   .chart-group.multi .chart { flex:1 1 460px; min-width:0; margin:0; }
-  .chart:hover { box-shadow:0 10px 34px rgba(0,0,0,0.45); border-color:rgba(232,131,58,0.3); }
+  .chart:hover { box-shadow:0 10px 34px rgba(0,0,0,0.45);
+                 border-color:color-mix(in srgb, var(--accent) 30%, transparent); }
   @keyframes chartIn { from{opacity:0;transform:translateY(14px) scale(.99);} to{opacity:1;transform:none;} }
 
   /* Front-and-center "swish" loader: the ball arcs into the hoop and through
@@ -157,24 +161,26 @@
     color:var(--muted); font-size:12.5px; cursor:pointer; text-decoration:none;
     border:1px solid var(--border); border-radius:999px; padding:6px 13px;
     transition: color .18s, border-color .18s, transform .18s, background .18s;
-    background:rgba(24,31,38,0.7);
+    background:color-mix(in srgb, var(--panel) 80%, transparent);
   }
   .hints a:hover { color:var(--ink); border-color:var(--accent);
-                   transform:translateY(-2px); background:rgba(232,131,58,0.08); }
+                   transform:translateY(-2px); background:color-mix(in srgb, var(--accent) 9%, transparent); }
   .row { max-width:860px; margin:0 auto; display:flex; gap:10px; }
   input {
     flex:1; padding:13px 16px; border-radius:12px; border:1px solid var(--border);
     background:var(--panel); color:var(--ink); font-size:15px; font-family:var(--sans);
     outline:none; transition: border-color .15s, box-shadow .15s;
   }
-  input:focus { border-color:var(--accent); box-shadow:0 0 0 3px rgba(232,131,58,0.14); }
+  input:focus { border-color:var(--accent);
+                box-shadow:0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent); }
   input::placeholder { color:var(--muted); }
   button {
     padding:13px 26px; border-radius:12px; border:none; background:var(--accent);
-    color:#16100a; font-size:15px; font-weight:600; cursor:pointer; font-family:var(--sans);
+    color:var(--on-accent); font-size:15px; font-weight:600; cursor:pointer; font-family:var(--sans);
     transition: filter .15s, transform .12s, box-shadow .15s;
   }
-  button:hover { filter:brightness(1.1); box-shadow:0 4px 16px rgba(232,131,58,0.3); }
+  button:hover { filter:brightness(1.1);
+                 box-shadow:0 4px 16px color-mix(in srgb, var(--accent) 30%, transparent); }
   button:active { transform:scale(.96); }
   button:disabled { opacity:.45; cursor:default; transform:none; box-shadow:none; }
 
@@ -264,10 +270,24 @@ async function loadThemes() {
       localStorage.setItem('nbaviz-theme', t.id);
       document.querySelectorAll('.swatch').forEach(s => s.classList.remove('active'));
       b.classList.add('active');
+      applyUITheme(t.id);          // re-skin the whole app
       recolorRendered();           // instantly recolor whatever's on screen
     });
     box.appendChild(b);
   });
+  applyUITheme(activeTheme);       // apply the saved theme to the page on load
+}
+
+// Re-skin the page shell (header, bubbles, input, accents) to a theme by
+// overriding the CSS custom properties — so the whole app themes, not just charts.
+function applyUITheme(id) {
+  const t = THEMES[id];
+  if (!t) return;
+  const p = t.palette, r = document.documentElement.style;
+  const keys = { '--bg': 'bg', '--card': 'card', '--panel': 'panel',
+                 '--border': 'border', '--ink': 'ink', '--muted': 'muted',
+                 '--accent': 'accent', '--accent2': 'accent2', '--on-accent': 'on_accent' };
+  for (const cssVar in keys) if (p[keys[cssVar]]) r.setProperty(cssVar, p[keys[cssVar]]);
 }
 
 // Build a value->value color map from one theme's colors to another's.
@@ -431,11 +451,12 @@ function showLoader() {
   el.innerHTML = `
     <div class="court-scene">
       <svg viewBox="0 0 260 170" aria-hidden="true">
-        <rect x="231" y="44" width="5" height="58" rx="1.5" fill="rgba(236,231,221,0.30)"/>
+        <rect x="231" y="44" width="5" height="58" rx="1.5"
+              fill="var(--muted)" fill-opacity="0.45"/>
         <rect x="210" y="64" width="22" height="20" rx="2" fill="none"
-              stroke="rgba(236,231,221,0.28)" stroke-width="2"/>
-        <g class="net" stroke="rgba(236,231,221,0.55)" stroke-width="1.5"
-           fill="none" stroke-linecap="round">
+              stroke="var(--muted)" stroke-opacity="0.4" stroke-width="2"/>
+        <g class="net" stroke="var(--muted)" stroke-width="1.5"
+           fill="none" stroke-linecap="round" stroke-opacity="0.7">
           <path d="M187 88 L197 118 M196 88 L202 118 M205 88 L205 118
                    M214 88 L208 118 M223 88 L213 118"/>
           <path d="M192 100 H218 M197 110 H213" stroke-width="1.2"/>
