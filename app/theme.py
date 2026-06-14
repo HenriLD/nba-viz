@@ -16,7 +16,7 @@ FONT = "'IBM Plex Sans', system-ui, -apple-system, sans-serif"
 # Chart titles — a characterful display serif, matching the UI wordmark.
 TITLE_FONT = "'Fraunces', Georgia, serif"
 
-MAX_TITLE = 48  # chars; longer titles are clipped at a word boundary with …
+MAX_TITLE = 40  # chars; longer titles are clipped at a word boundary with …
 
 
 # Each theme defines the same keys. card = figure background; ink = primary
@@ -173,6 +173,13 @@ def _clip_title(text: str) -> str:
 def style(fig: go.Figure, title: str, subtitle: str | None = None,
           height: int = 480, source: bool = True) -> go.Figure:
     """Apply the house style with the active theme. Call once per figure."""
+    # Vertical bar charts get auto-rotated (diagonal) x tick labels that reach
+    # down toward the source caption; give them extra bottom room so the labels
+    # and the caption don't collide.
+    has_vbar = any(getattr(t, "type", "") == "bar"
+                   and (getattr(t, "orientation", None) or "v") == "v"
+                   for t in fig.data)
+    b_margin = 92 if has_vbar else 64
     fig.update_layout(
         height=height,
         autosize=True,
@@ -189,7 +196,7 @@ def style(fig: go.Figure, title: str, subtitle: str | None = None,
             x=0.04, xanchor="left", y=0.97, yref="container", yanchor="top",
             pad=dict(b=8),
         ),
-        margin=dict(l=58, r=30, t=92 if subtitle else 60, b=64),
+        margin=dict(l=58, r=30, t=92 if subtitle else 60, b=b_margin),
         legend=dict(
             orientation="h", x=1, y=1.0, xanchor="right", yanchor="bottom",
             bgcolor="rgba(0,0,0,0)", font=dict(size=12, color=PALETTE["muted"]),
@@ -212,10 +219,14 @@ def style(fig: go.Figure, title: str, subtitle: str | None = None,
         title_font=dict(color=PALETTE["muted"], size=12),
     )
     if source:
+        # Pin the caption to the figure's bottom edge (a fixed pixel drop from
+        # the plot area) so it stays below the rotated x labels regardless of
+        # chart height, instead of floating just under the axis.
         fig.add_annotation(
             text="Court Vision · data: stats.nba.com",
-            xref="paper", yref="paper", x=1, y=-0.125,
-            xanchor="right", yanchor="top", showarrow=False,
+            xref="paper", yref="paper", x=1, y=0,
+            xanchor="right", yanchor="top", yshift=-(b_margin - 14),
+            showarrow=False,
             font=dict(size=10, color=PALETTE["muted"], family=FONT),
         )
     return fig

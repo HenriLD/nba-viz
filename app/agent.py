@@ -113,8 +113,14 @@ QUERY_CHART_TOOL = {
                               "description": "Optional post-query transform applied "
                                              "to y, per series."},
                 "rolling_window": {"type": "integer", "minimum": 2, "maximum": 40},
-                "title": {"type": "string"},
-                "subtitle": {"type": "string"},
+                "title": {"type": "string",
+                          "description": "Short, headline-style title — aim for "
+                                         "≤ 6 words / ~40 chars, no trailing "
+                                         "period. Keep season/filter qualifiers "
+                                         "out of it (put them in subtitle)."},
+                "subtitle": {"type": "string",
+                             "description": "Optional one-line context: season, "
+                                            "split, or filter the title omits."},
             },
             "required": ["sql", "chart_type", "title"],
         },
@@ -257,6 +263,9 @@ Rules:
   shooting trends" -> two player_stat_trend calls). Don't render multiple
   unless it clearly helps; one good chart beats several redundant ones.
 - Pass player/team names as the user said them to render_chart (server fuzzy-matches).
+- Keep chart titles short and punchy — a headline, not a sentence (aim for ≤ 6 \
+words / ~40 chars). Don't restate the season or filters in the title; put those \
+in the subtitle. Long titles get clipped.
 - Omit season to default to the current one.
 - If a tool returns an error, read it, fix your params or SQL, and try again \
 (you have a couple of retries).
