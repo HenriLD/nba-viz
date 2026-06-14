@@ -55,6 +55,12 @@ def _fmt(val: float, stat: str) -> str:
     return f"{val:.1%}" if _is_pct(stat) else f"{val:.1f}"
 
 
+def _rgba(hex_str: str, alpha: float) -> str:
+    h = hex_str.lstrip("#")
+    r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+    return f"rgba({r},{g},{b},{alpha})"
+
+
 # ---------------------------------------------------------------- templates
 
 def _player_stat_trend(params: dict) -> ChartResult:
@@ -490,6 +496,78 @@ def _player_split(params: dict) -> ChartResult:
         f"{r.split}: {_fmt(r.val, stat)} ({r.gp} games)" for r in df.itertuples()))
 
 
+def _stat_distribution(params: dict) -> ChartResult:
+    """The full game-by-game spread of a stat (violin + inner box + every game
+    as a dot), optionally split into two distributions to compare — far more
+    informative than a single average bar."""
+    p = resolve_player(params["player"])
+    season = _season(params)
+    stat = validate_stat(params.get("stat", "pts"))
+    split = params.get("split") or "none"
+    if split not in ("none", "win_loss", "home_away"):
+        raise ValueError("split must be 'none', 'win_loss', or 'home_away'.")
+    label = stat_label(stat)
+    pctfmt = ".0%" if _is_pct(stat) else None
+
+    case = SPLITS[split][0] if split != "none" else None
+    sel = f"{case} AS split, " if case else ""
+    df = query_df(f"""
+        SELECT {sel}{_stat_select(stat, agg=False)} AS val
+        FROM player_game_logs
+        WHERE player_id = :pid AND season = :season
+          AND season_type = 'Regular Season'
+    """, {"pid": p.player_id, "season": season}).dropna(subset=["val"])
+    if df.empty:
+        raise ValueError(f"No games found for {p.full_name} in {season}.")
+
+    fig = go.Figure()
+
+    def add(values, name, color, show_legend):
+        # Few games → a violin's smoothed shape is misleading; fall back to a box.
+        if len(values) < 8:
+            fig.add_trace(go.Box(
+                y=values, name=name, line=dict(color=color),
+                fillcolor=_rgba(color, 0.22), opacity=0.92, boxpoints="all",
+                jitter=0.3, pointpos=0, showlegend=show_legend,
+                marker=dict(color=color, size=4, opacity=0.55),
+                hovertemplate="%{y}<extra>" + name + "</extra>"))
+        else:
+            fig.add_trace(go.Violin(
+                y=values, name=name, line_color=color, fillcolor=_rgba(color, 0.30),
+                opacity=0.9, box_visible=True, meanline_visible=True, points="all",
+                jitter=0.3, pointpos=0, scalemode="width", showlegend=show_legend,
+                marker=dict(color=color, size=4, opacity=0.5),
+                hovertemplate="%{y}<extra>" + name + "</extra>"))
+
+    def describe(s) -> str:
+        return (f"median {_fmt(s.median(), stat)}, mean {_fmt(s.mean(), stat)}, "
+                f"spread {_fmt(s.std(), stat)} SD over {s.count()} games")
+
+    if split == "none":
+        add(df["val"], p.full_name.split()[-1], PALETTE["accent"], False)
+        title = f"{p.full_name} — {label} distribution"
+        subtitle = f"{season} regular season · each dot is one game"
+        summary = f"{label}: {describe(df['val'])}."
+    else:
+        order = (["In wins", "In losses"] if split == "win_loss"
+                 else ["Home", "Away"])
+        colors = {"In wins": PALETTE["made"], "In losses": PALETTE["missed"],
+                  "Home": PALETTE["accent"], "Away": PALETTE["accent2"]}
+        parts = []
+        for name in order:
+            g = df[df["split"] == name]["val"]
+            if g.count():
+                add(g, name, colors[name], True)
+                parts.append(f"{name}: {describe(g)}")
+        title = f"{p.full_name} — {label} {SPLITS[split][1]}"
+        subtitle = f"{season} regular season · each dot is one game"
+        summary = "; ".join(parts)
+
+    fig.update_yaxes(title_text=label, tickformat=pctfmt, zeroline=False)
+    theme.style(fig, title, subtitle=subtitle)
+    return ChartResult(fig, summary)
+
+
 CATALOG: dict[str, Template] = {t.id: t for t in [
     Template("player_stat_trend",
              "Line chart of one player's stat game-by-game across a season, "
@@ -532,10 +610,20 @@ CATALOG: dict[str, Template] = {t.id: t for t in [
              "shots / shot profile by zone'.",
              ["player"], _shot_zone_breakdown, ["season"]),
     Template("player_split",
-             "Bar chart comparing one player's stat across a built-in split: "
-             "'home_away', 'win_loss', or 'rest' (back-to-back vs rested). Use "
-             "for 'X in wins vs losses', 'X home vs away', 'X on back-to-backs'.",
+             "Bar chart comparing one player's AVERAGE of a stat across a "
+             "built-in split: 'home_away', 'win_loss', or 'rest' (back-to-back "
+             "vs rested). Use for a quick 'X averages more in wins vs losses'. "
+             "If the user wants the spread/distribution, use stat_distribution.",
              ["player"], _player_split, ["season", "stat", "split"]),
+    Template("stat_distribution",
+             "The full game-by-game DISTRIBUTION of one player's stat — a "
+             "violin/box plot showing median, quartiles and every game as a dot, "
+             "not just the average. Optionally split into two with 'win_loss' or "
+             "'home_away' to compare shapes. Use whenever the question mentions a "
+             "distribution, spread, consistency, range, or 'how often' for a "
+             "player's per-game stat (e.g. 'distribution of X's points in wins "
+             "vs losses', 'how consistent is X's scoring').",
+             ["player"], _stat_distribution, ["season", "stat", "split"]),
 ]}
 
 

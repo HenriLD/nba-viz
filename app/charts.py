@@ -14,8 +14,15 @@ from app.result import ChartResult
 from app.theme import PALETTE, SERIES
 from core.db import safe_select
 
-CHART_TYPES = ["bar", "grouped_bar", "line", "scatter", "horizontal_bar", "table"]
+CHART_TYPES = ["bar", "grouped_bar", "line", "scatter", "horizontal_bar",
+               "box", "violin", "histogram", "table"]
 TRANSFORMS = ["none", "rolling_mean", "cumulative", "index_to_100", "rank"]
+
+
+def _rgba(hex_str: str, alpha: float) -> str:
+    h = hex_str.lstrip("#")
+    r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+    return f"rgba({r},{g},{b},{alpha})"
 
 
 # ------------------------------------------------------------- transforms
@@ -115,6 +122,58 @@ def _scatter(df, x, y, series):
     return fig
 
 
+def _distribution(df, x, y, series, kind):
+    """Box or violin of raw values (one row per observation). The value goes on
+    y; an optional category (series, else x) splits it into side-by-side
+    distributions. Violins carry an inner box + mean line; both show every
+    observation as a jittered dot, so the spread and outliers are visible."""
+    val = y if (y and y in df.columns) else None
+    if val is None:
+        raise ValueError(
+            "box/violin needs a numeric 'y' column of raw (un-aggregated) "
+            f"values, one row per observation. Got columns {list(df.columns)}.")
+    cat = series if (series and series in df.columns) else (
+        x if (x and x in df.columns and x != val) else None)
+
+    def add(values, name, color, show_legend):
+        if kind == "violin":
+            fig.add_trace(go.Violin(
+                y=values, name=name, line_color=color, fillcolor=_rgba(color, 0.30),
+                opacity=0.9, box_visible=True, meanline_visible=True, points="all",
+                jitter=0.3, pointpos=0, scalemode="width", showlegend=show_legend,
+                marker=dict(color=color, size=4, opacity=0.5),
+                hovertemplate="%{y}<extra>" + name + "</extra>"))
+        else:
+            fig.add_trace(go.Box(
+                y=values, name=name, line=dict(color=color),
+                fillcolor=_rgba(color, 0.22), opacity=0.92, boxpoints="all",
+                jitter=0.3, pointpos=0, showlegend=show_legend,
+                marker=dict(color=color, size=4, opacity=0.55),
+                hovertemplate="%{y}<extra>" + name + "</extra>"))
+
+    fig = go.Figure()
+    if cat:
+        for i, (key, grp) in enumerate(df.groupby(cat, sort=False)):
+            add(grp[val], str(key), SERIES[i % len(SERIES)], True)
+    else:
+        add(df[val], "", PALETTE["accent"], False)
+    return fig
+
+
+def _histogram(df, val, series):
+    fig = go.Figure()
+    if series and series in df.columns:
+        for i, (key, grp) in enumerate(df.groupby(series, sort=False)):
+            fig.add_trace(go.Histogram(
+                x=grp[val], name=str(key), marker_color=SERIES[i % len(SERIES)],
+                opacity=0.6))
+        fig.update_layout(barmode="overlay")
+    else:
+        fig.add_trace(go.Histogram(
+            x=df[val], marker_color=PALETTE["accent"], opacity=0.88))
+    return fig
+
+
 def _table(df):
     head = dict(values=[f"<b>{prettify(c)}</b>" for c in df.columns],
                 fill_color="#1f2630", font=dict(color=PALETTE["ink"], size=13),
@@ -132,6 +191,26 @@ def build_figure(df: pd.DataFrame, chart_type: str, x: str | None, y: str | None
         fig = _table(df)
         theme.style(fig, title, subtitle=subtitle,
                     height=min(620, 90 + 28 * len(df)))
+        return fig
+
+    # Distribution charts consume raw rows and have their own column needs:
+    # box/violin need the value (y); histogram needs the value (x).
+    if chart_type in ("box", "violin"):
+        _need(df, y)
+        fig = _distribution(df, x, y, series, chart_type)
+        theme.style(fig, title, subtitle=subtitle)
+        cat = series if (series and series in df.columns) else x
+        if cat and cat in df.columns and cat != y:
+            fig.update_xaxes(title_text=prettify(cat))
+        fig.update_yaxes(title_text=prettify(y))
+        return fig
+    if chart_type == "histogram":
+        val = x if (x and x in df.columns) else y
+        _need(df, val)
+        fig = _histogram(df, val, series)
+        theme.style(fig, title, subtitle=subtitle)
+        fig.update_xaxes(title_text=prettify(val))
+        fig.update_yaxes(title_text="Games")
         return fig
 
     _need(df, x, y)

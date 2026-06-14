@@ -40,5 +40,13 @@
   {"q": "Is Tatum better at home or on the road?",
    "template_id": "player_split", "params": {"player": "tatum", "split": "home_away"}},
   {"q": "How does Giannis play on back-to-backs?",
-   "template_id": "player_split", "params": {"player": "giannis", "split": "rest"}}
+   "template_id": "player_split", "params": {"player": "giannis", "split": "rest"}},
+  {"q": "Jokic's points in wins vs losses, show me a distribution of both",
+   "template_id": "stat_distribution", "params": {"player": "jokic", "split": "win_loss"}},
+  {"q": "Distribution of Curry's points this season",
+   "template_id": "stat_distribution", "params": {"player": "curry"}},
+  {"q": "How consistent is Tatum's scoring game to game?",
+   "template_id": "stat_distribution", "params": {"player": "tatum"}},
+  {"q": "Show the spread of Luka's assists at home vs on the road",
+   "template_id": "stat_distribution", "params": {"player": "luka", "stat": "ast", "split": "home_away"}}
 ]

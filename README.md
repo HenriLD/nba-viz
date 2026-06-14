@@ -36,6 +36,7 @@ builder — just ask:
 | Team form | Team stat trend with rolling average |
 | Shot diet by zone | Volume + accuracy per court zone |
 | Splits (home/away, wins/losses, rest) | Side-by-side bar comparison |
+| Distribution / consistency of a stat | Violin + box of every game, optionally split by wins/losses or home/away |
 | Clutch, hustle, tracking defense | Best clutch scorers, deflections/screen assists, defended FG% |
 | Triple-doubles, H2H, opponent tiers | Derived from game logs + a team-season summary |
 | **Anything else** — custom periods, specific opponents, multi-condition filters | The model writes a sandboxed SQL query and picks a chart for it |

@@ -96,8 +96,12 @@ def _name_index() -> dict[str, tuple[str, int]]:
 
 
 def _tokens(message: str) -> list[str]:
+    # Keep apostrophes (so "d'angelo", "o'neal" stay intact) but strip a trailing
+    # possessive "'s" so "jokic's"/"curry's" still match the bare surname.
     folded = _fold(message)
-    return [t for t in re.split(r"[^a-z0-9.'-]+", folded) if t]
+    toks = [t for t in re.split(r"[^a-z0-9.'-]+", folded) if t]
+    # strip "jokic's" -> "jokic" and "lakers'" -> "lakers"
+    return [t[:-2] if t.endswith("'s") else t.rstrip("'") for t in toks]
 
 
 def extract_entities(message: str) -> tuple[list[int], list[int]]:

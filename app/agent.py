@@ -198,7 +198,11 @@ SQL rules:
 - Opponent is the 3-letter abbreviation (LAL, GSW, BOS, ...).
 - When grouping by a CASE/computed column, use GROUP BY 1 (or repeat the full
   expression) and don't alias it to an existing column name like 'matchup'.
-- Always GROUP appropriately and alias columns to match your x/y/series."""
+- Always GROUP appropriately and alias columns to match your x/y/series.
+- For distribution charts (box/violin/histogram) do the OPPOSITE: return RAW
+  rows, one per game, with NO GROUP BY/aggregation — e.g. for points in wins vs
+  losses: SELECT won, pts FROM v_player_games WHERE name_key LIKE '%jokic%' AND
+  season='2025-26'. Put the value on y and the optional split column on x/series."""
 
 CANNOT_ANSWER = """You CANNOT answer (no data) — say so plainly instead of guessing:
 - Per-game or per-possession clutch timelines, score-margin-at-a-moment, or
@@ -266,6 +270,11 @@ Rules:
 - Keep chart titles short and punchy — a headline, not a sentence (aim for ≤ 6 \
 words / ~40 chars). Don't restate the season or filters in the title; put those \
 in the subtitle. Long titles get clipped.
+- Show the spread, not just an average. When the question mentions a \
+distribution, spread, consistency, range, or "how often" — or compares two \
+groups' shapes — use stat_distribution (or, on the SQL path, return one row per \
+game with chart_type box/violin/histogram). Don't answer a "distribution" \
+question with a two-bar average.
 - Omit season to default to the current one.
 - If a tool returns an error, read it, fix your params or SQL, and try again \
 (you have a couple of retries).
