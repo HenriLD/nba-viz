@@ -23,6 +23,33 @@ def test_shot_chart_splits_made_and_missed_on_a_court():
     assert fig.layout.height == 640
 
 
+def test_shot_chart_defaults_coords_and_color_when_args_omitted():
+    # The common model output: SELECT loc_x, loc_y, made — with x/y/series args
+    # left unset. Must default to loc_x/loc_y and color by the third column
+    # (previously df[None] raised an opaque KeyError and the render failed).
+    df = pd.DataFrame({"loc_x": [10, -50, 120], "loc_y": [20, 80, 150],
+                       "made": [True, False, True]})
+    fig = build_figure(df, "shot_chart", None, None, None, "t")
+    names = {t.name for t in fig.data if getattr(t, "name", None)}
+    assert {"Made", "Missed"} <= names
+    assert fig.layout.height == 640
+
+
+def test_shot_chart_defaults_coords_with_category_color():
+    # A by-quarter clutch chart: loc_x, loc_y, quarter — no args. Colors by quarter.
+    df = pd.DataFrame({"loc_x": [1, 2, 3], "loc_y": [4, 5, 6],
+                       "quarter": ["Q4", "Q4", "OT"]})
+    fig = build_figure(df, "shot_chart", None, None, None, "t")
+    names = {t.name for t in fig.data if getattr(t, "name", None)}
+    assert names == {"Q4", "OT"}
+
+
+def test_shot_heatmap_defaults_coords_when_args_omitted():
+    df = pd.DataFrame({"loc_x": [1, 2, 3] * 4, "loc_y": [4, 5, 6] * 4})
+    fig = build_figure(df, "shot_heatmap", None, None, None, "t")
+    assert any(t.type == "histogram2dcontour" for t in fig.data)
+
+
 def test_shot_chart_without_made_column_plots_all_as_makes():
     df = _shots().drop(columns=["made"])
     fig = build_figure(df, "shot_chart", "loc_x", "loc_y", None, "t")

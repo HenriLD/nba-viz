@@ -212,13 +212,29 @@ def build_figure(df: pd.DataFrame, chart_type: str, x: str | None, y: str | None
 
     # Court visualizations — same renderers the shot templates use, but fed by
     # the model's own SQL so any filter is possible (period, opponent, wins...).
-    if chart_type == "shot_chart":
+    # Shots are virtually always SELECT loc_x, loc_y[, color] from v_shots, so
+    # default the coordinates (and treat any third column as the color series)
+    # when the model omits the x/y/series args — otherwise df[None] raised an
+    # opaque KeyError the model couldn't recover from.
+    if chart_type in ("shot_chart", "shot_heatmap"):
+        if not x and "loc_x" in df.columns:
+            x = "loc_x"
+        if not y and "loc_y" in df.columns:
+            y = "loc_y"
+        if not x or not y:
+            raise ValueError(
+                "shot_chart/shot_heatmap need x and y coordinate columns — "
+                "SELECT loc_x, loc_y from v_shots (optionally a third column to "
+                f"color by). Got columns {list(df.columns)}.")
         _need(df, x, y)
+    if chart_type == "shot_chart":
+        if not series:  # any extra selected column is the intended color dimension
+            extra = [c for c in df.columns if c not in (x, y)]
+            series = extra[0] if extra else None
         fig = _shot_chart(df, x, y, series)
         theme.style(fig, title, subtitle=subtitle, height=640)
         return fig
     if chart_type == "shot_heatmap":
-        _need(df, x, y)
         fig = court.shot_heatmap_figure(df[x], df[y])
         theme.style(fig, title, subtitle=subtitle, height=640)
         return fig
