@@ -13,7 +13,7 @@ import numpy as np
 import plotly.graph_objects as go
 
 from app import theme
-from app.theme import PALETTE
+from app.theme import PALETTE, SERIES
 
 LINE_W = 2.0
 # Exact y where the corner-three line meets the arc (~89.5, NOT 92.5 — using
@@ -118,6 +118,21 @@ def shot_chart_figure(made_x, made_y, missed_x, missed_y,
         text=made_text,
         hovertemplate=("%{text}<extra>made</extra>" if made_text is not None
                        else "<extra>made</extra>")))
+    fig.update_layout(**court_layout())
+    return fig
+
+
+def shot_chart_by_category(df, x, y, cat) -> go.Figure:
+    """Half-court scatter colored by a category column (quarter, zone, opponent…),
+    one trace + legend entry per distinct value — for comparing where shots come
+    from across that dimension."""
+    fig = go.Figure(court_traces())
+    for i, (key, grp) in enumerate(df.groupby(cat, sort=True)):
+        fig.add_trace(go.Scatter(
+            x=grp[x], y=grp[y], mode="markers", name=str(key),
+            marker=dict(color=SERIES[i % len(SERIES)], size=5.5, opacity=0.7,
+                        line=dict(width=0)),
+            hovertemplate=str(key) + "<extra></extra>"))
     fig.update_layout(**court_layout())
     return fig
 

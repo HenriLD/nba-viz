@@ -272,11 +272,15 @@ SQL rules:
   season='2025-26'. Put the value on y and the optional split column on x/series.
 - shot_chart and shot_heatmap draw on an NBA half-court from v_shots — return one
   RAW row per shot with x=loc_x, y=loc_y (add `AND loc_y < 420` to drop half-court
-  heaves). shot_chart also takes a boolean `made` column as `series` so it colors
-  makes vs misses, e.g.: SELECT loc_x, loc_y, made FROM v_shots WHERE
-  name_key LIKE '%curry%' AND season='2025-26' AND period=4 AND loc_y < 420.
-  Use these (not a template) whenever the shot chart/map needs a subset the
-  templates can't express — a quarter, an opponent, clutch, wins only, etc."""
+  heaves). For shot_chart the `series` column COLORS the dots: use a boolean
+  `made` for makes vs misses, OR any category to compare WHERE shots come from
+  across it — period (for "by quarter", alias it e.g. 'Q'||period), shot_zone_basic,
+  opponent, won, etc. By-quarter example:
+  SELECT loc_x, loc_y, 'Q'||period AS quarter FROM v_shots WHERE
+  name_key LIKE '%wembanyama%' AND season='2025-26' AND loc_y < 420 (series=quarter).
+  So "how X's shot chart differs by quarter/zone/opponent" = ONE shot_chart
+  colored by that column. Use these whenever the shot chart needs a subset or
+  split the templates can't express."""
 
 CANNOT_ANSWER = """You CANNOT answer (no data) — say so plainly instead of guessing:
 - Per-game or per-possession clutch timelines, score-margin-at-a-moment, or

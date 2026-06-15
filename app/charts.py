@@ -176,14 +176,19 @@ def _as_made(s: pd.Series) -> pd.Series:
         {"true", "t", "1", "made", "make", "yes", "y"})
 
 
+_MADE_COLS = {"made", "make", "shot_made", "shot_made_flag", "is_made"}
+
+
 def _shot_chart(df, x, y, series):
-    cat = series if (series and series in df.columns) else None
-    if cat:
-        made_mask = _as_made(df[cat])
-        made, missed = df[made_mask], df[~made_mask]
-    else:  # no make/miss column → plot everything as makes
-        made, missed = df, df.iloc[0:0]
-    return court.shot_chart_figure(made[x], made[y], missed[x], missed[y])
+    if series and series in df.columns:
+        if series.strip().lower() in _MADE_COLS:   # color makes vs misses
+            mask = _as_made(df[series])
+            made, missed = df[mask], df[~mask]
+            return court.shot_chart_figure(made[x], made[y], missed[x], missed[y])
+        # any other column → color the shots by that category (quarter, zone…)
+        return court.shot_chart_by_category(df, x, y, series)
+    # no series → plot everything as makes
+    return court.shot_chart_figure(df[x], df[y], df.iloc[0:0][x], df.iloc[0:0][y])
 
 
 def _table(df):

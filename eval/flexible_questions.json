@@ -22,5 +22,6 @@
 
   {"q": "Show me Curry's shot chart in the fourth quarter this season", "expect_figure": true},
   {"q": "Where does Tatum shoot from in games his team won this season?", "expect_figure": true},
-  {"q": "Curry's shot chart from three-point range only this season", "expect_figure": true}
+  {"q": "Curry's shot chart from three-point range only this season", "expect_figure": true},
+  {"q": "Show me how Wembanyama's shot chart differs between quarters", "expect_figure": true}
 ]

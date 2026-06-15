@@ -31,6 +31,16 @@ def test_shot_chart_without_made_column_plots_all_as_makes():
     assert len(made.x) == 5 and len(missed.x) == 0
 
 
+def test_shot_chart_colors_by_category():
+    # a non-'made' series column (quarter) colors one trace per value, not made/missed
+    df = pd.DataFrame({"loc_x": [1, 2, 3, 4], "loc_y": [5, 6, 7, 8],
+                       "quarter": ["Q1", "Q1", "Q2", "Q3"]})
+    fig = build_figure(df, "shot_chart", "loc_x", "loc_y", "quarter", "t")
+    names = {t.name for t in fig.data if getattr(t, "name", None)}
+    assert names == {"Q1", "Q2", "Q3"}
+    assert "Made" not in names and "Missed" not in names
+
+
 def test_shot_heatmap_has_density_contour():
     df = pd.DataFrame({"loc_x": [1, 2, 3] * 4, "loc_y": [4, 5, 6] * 4})
     fig = build_figure(df, "shot_heatmap", "loc_x", "loc_y", None, "t")
