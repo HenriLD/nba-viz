@@ -250,6 +250,35 @@
     .ecard .egrid { gap:9px 6px; margin:10px 0 2px; }
   }
 
+  /* Bottom-left "?" help button with an about popover. */
+  .help { position:fixed; left:18px; bottom:26px; z-index:30; }
+  .help-btn {
+    width:34px; height:34px; padding:0; border-radius:50%; line-height:1;
+    background:var(--panel); color:var(--muted); border:1px solid var(--border);
+    font-family:var(--serif); font-size:17px; font-weight:600; cursor:pointer;
+    display:flex; align-items:center; justify-content:center;
+    box-shadow:0 4px 14px rgba(0,0,0,.3);
+    transition: color .15s, border-color .15s, transform .15s;
+  }
+  .help-btn:hover { color:var(--ink); border-color:var(--accent); transform:scale(1.08);
+                    box-shadow:0 4px 14px rgba(0,0,0,.3); filter:none; }
+  .help-pop {
+    position:absolute; left:0; bottom:46px; width:300px;
+    background:var(--panel); border:1px solid var(--border); border-radius:14px;
+    padding:16px 16px 14px; box-shadow:0 12px 36px rgba(0,0,0,.42);
+    animation: rise .22s ease both;
+  }
+  .help-pop h3 { margin:0 0 9px; font-family:var(--serif); font-size:16px; font-weight:600;
+                 font-style:italic; color:var(--ink); display:flex; align-items:center; gap:7px; }
+  .help-pop h3 span { font-style:normal; }
+  .help-pop p { margin:0 0 9px; font-size:13px; line-height:1.55; color:var(--muted); }
+  .help-pop a { color:var(--accent); font-size:13px; font-weight:500; text-decoration:none; }
+  .help-pop a:hover { text-decoration:underline; }
+  @media (max-width: 920px) {
+    .help { bottom:92px; left:14px; }   /* lift above the input bar */
+    .help-pop { width:min(300px, calc(100vw - 28px)); }
+  }
+
   @media (prefers-reduced-motion: reduce) {
     *, *::before { animation: none !important; transition: none !important; }
   }
@@ -266,8 +295,9 @@
   <div class="welcome" id="welcome">
     <div class="big">🏀</div>
     <h2>See the whole floor.</h2>
-    <p>Five seasons of NBA data — box scores, 1.2&nbsp;million shots, clutch,
-       hustle and tracking defense. Ask a question, get the chart.</p>
+    <p>Four decades of the NBA — every box score back to <strong>1980-81</strong>,
+       plus shot charts, clutch, hustle and tracking defense for recent seasons.
+       Ask in plain English, get the chart.</p>
   </div>
 </div>
 
@@ -281,6 +311,21 @@
     <button id="send" type="submit">Send</button>
   </div>
 </form>
+
+<div class="help" id="help">
+  <button class="help-btn" id="help-btn" type="button" aria-label="About Court Vision"
+          aria-expanded="false">?</button>
+  <div class="help-pop" id="help-pop" role="dialog" aria-label="About" hidden>
+    <h3><span>🏀</span> Court Vision</h3>
+    <p>Ask any NBA question in plain English and get a broadcast-quality,
+       interactive chart — no dropdowns, no query builder.</p>
+    <p>A small language model picks a chart and writes the query; the data is
+       40+ seasons of box scores (back to 1980-81) plus recent shot charts and
+       tracking stats. The whole stack runs on free hosting.</p>
+    <a href="https://github.com/HenriLD/nba-viz#readme" target="_blank" rel="noopener">
+      Read the docs ↗</a>
+  </div>
+</div>
 
 <script>
 const chat = document.getElementById('chat');
@@ -690,6 +735,22 @@ form.addEventListener('submit', async (e) => {
     input.focus();
   }
 });
+// ---- About popover --------------------------------------------------------
+const helpWrap = document.getElementById('help');
+const helpBtn = document.getElementById('help-btn');
+const helpPop = document.getElementById('help-pop');
+function setHelp(open) {
+  helpPop.hidden = !open;
+  helpBtn.setAttribute('aria-expanded', String(open));
+}
+helpBtn.addEventListener('click', (e) => { e.stopPropagation(); setHelp(helpPop.hidden); });
+document.addEventListener('click', (e) => {
+  if (!helpPop.hidden && !helpWrap.contains(e.target)) setHelp(false);
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !helpPop.hidden) { setHelp(false); helpBtn.focus(); }
+});
+
 input.focus();
 </script>
 </body>
