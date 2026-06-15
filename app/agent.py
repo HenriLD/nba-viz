@@ -106,6 +106,12 @@ RENDER_CHART_TOOL = {
                         "teams": {"type": "array", "items": {"type": "string"}},
                         "season": {"type": "string",
                                    "description": "e.g. '2024-25'. Omit for current."},
+                        "season_from": {"type": "string",
+                                        "description": "Start of a season range "
+                                        "for player_comparison, e.g. '2010-11'."},
+                        "season_to": {"type": "string",
+                                      "description": "End of a season range for "
+                                      "player_comparison, e.g. '2015-16'."},
                         "stat": {"type": "string", "enum": ALL_STATS},
                         "top_n": {"type": "integer", "minimum": 3, "maximum": 30},
                         "rolling_window": {"type": "integer", "minimum": 2, "maximum": 20},

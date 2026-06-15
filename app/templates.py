@@ -18,7 +18,7 @@ from app.entities import resolve_player, resolve_team
 from app.result import ChartResult
 from app.theme import PALETTE, SERIES
 from core.db import query_df
-from core.seasons import latest_season, validate_season
+from core.seasons import available_seasons, latest_season, validate_season
 from core.stats import RATIO_STATS, SIMPLE_STATS, stat_label, validate_stat
 
 
@@ -136,15 +136,30 @@ def _player_comparison(params: dict) -> ChartResult:
         return ChartResult(fig, "; ".join(
             f"{r.player_name}: {r.val:.2f}" for r in df.itertuples()))
 
+    # Career arc across seasons. With 40+ seasons on hand, an all-seasons span
+    # can be unreadably wide (e.g. cross-era pairs), so honor an optional custom
+    # season_from / season_to range; default to the players' full data span.
+    sfrom = params.get("season_from")
+    sto = params.get("season_to")
+    range_clause, sub_range = "", "Regular-season per-game averages"
+    qparams = dict(ids)
+    if sfrom or sto:
+        sfrom = validate_season(sfrom) if sfrom else available_seasons()[0]
+        sto = validate_season(sto) if sto else latest_season()
+        range_clause = " AND season BETWEEN :sfrom AND :sto"
+        qparams.update(sfrom=sfrom, sto=sto)
+        sub_range = f"{sfrom} to {sto} · regular-season per-game averages"
+
     df = query_df(f"""
         SELECT player_id, max(player_name) AS player_name, season,
                {_stat_select(stat, agg=True)} AS val
         FROM player_game_logs
-        WHERE player_id IN ({id_list}) AND season_type = 'Regular Season'
+        WHERE player_id IN ({id_list}) AND season_type = 'Regular Season'{range_clause}
         GROUP BY player_id, season ORDER BY season
-    """, ids)
+    """, qparams)
     if df.empty:
-        raise ValueError("No data found for those players.")
+        where = f" in {sfrom}–{sto}" if (sfrom or sto) else ""
+        raise ValueError(f"No data found for those players{where}.")
     fig = go.Figure()
     for i, (pid, grp) in enumerate(df.groupby("player_id")):
         name = grp["player_name"].iloc[0]
@@ -160,8 +175,7 @@ def _player_comparison(params: dict) -> ChartResult:
             hovertemplate=name + " · %{x}: %{y}<extra></extra>"))
     fig.update_yaxes(title_text=f"{label} per game", tickformat=pctfmt)
     fig.update_xaxes(type="category")
-    theme.style(fig, f"{label} — season by season",
-                subtitle="Regular-season per-game averages")
+    theme.style(fig, f"{label} — season by season", subtitle=sub_range)
     return ChartResult(fig, f"Compared {len(players)} players across "
                             f"{df['season'].nunique()} seasons.")
 
@@ -593,10 +607,13 @@ CATALOG: dict[str, Template] = {t.id: t for t in [
              "with rolling average. Use for 'how has X been scoring lately'.",
              ["player"], _player_stat_trend, ["season", "stat", "rolling_window"]),
     Template("player_comparison",
-             "Compare 2+ players on one stat. With a season: bar chart of that "
-             "season's averages. Without: line chart of per-season averages "
-             "across all stored seasons. Use for 'X vs Y'.",
-             ["players", "stat"], _player_comparison, ["season"]),
+             "Compare 2+ players on one stat. With a single 'season': bar chart "
+             "of that season's averages. Otherwise: a per-season line across the "
+             "players' careers — optionally bounded by 'season_from'/'season_to' "
+             "(use a range for cross-era pairs or 'in the 2010s', else it spans "
+             "every season they played, back to 1980-81). Use for 'X vs Y'.",
+             ["players", "stat"], _player_comparison,
+             ["season", "season_from", "season_to"]),
     Template("shot_chart",
              "Court scatter plot of a player's makes and misses for a season. "
              "Use for 'show me X's shots / shot selection'.",
