@@ -41,8 +41,11 @@ builder — just ask:
 | Triple-doubles, H2H, opponent tiers | Derived from game logs + a team-season summary |
 | **Anything else** — custom periods, specific opponents, multi-condition filters | The model writes a sandboxed SQL query and picks a chart for it |
 
-Charts are fully interactive (hover for game details, zoom, pan) and the data
-covers the **last 5 NBA seasons** — regular season and playoffs — refreshed daily.
+Charts are fully interactive (hover for game details, zoom, pan). Box-score data
+(scoring, rebounding, assists, shooting, standings…) reaches back to the
+**1980-81 season**; shot charts, heatmaps and player-tracking splits cover the
+**most recent ~5 seasons**, where that detail exists. Regular season and
+playoffs, refreshed daily.
 
 ## How it works
 
@@ -56,7 +59,7 @@ your question ──> small LLM picks ONE of two tools:
                                      mapped onto a generic chart
                                      (custom periods, opponents, constraints)
                         ▼
-              Postgres (5 seasons of logs + 1.2M shots, friendly views) ──>
+              Postgres (40+ seasons of box logs + recent shots, friendly views) ──>
                   Plotly figure ──> rendered in your browser
 ```
 
@@ -89,7 +92,9 @@ the only operating cost is model tokens.
   splits (shooting by closest-defender distance: 0–2 ft / 2–4 ft / 4–6 ft /
   6+ ft) — you can't ask for things like "possessions where two defenders
   collapsed."
-- **5-season window.** Career-arc questions reach back ~5 years, not to 1996.
+- **Box scores to 1980, shots to ~5 seasons.** Career-arc and historical
+  box-score questions reach back to 1980-81, but shot charts/heatmaps and
+  player-tracking splits only exist for roughly the last 5 seasons.
 - **8 chart types.** If your question doesn't map to a template, the bot says
   so and suggests what it *can* show instead of inventing data.
 
@@ -126,7 +131,8 @@ reproducible behavior — see `eval/benchmark.py`.
 Then backfill and run:
 
 ```sh
-python -m ingest.backfill --n 5      # one-time, ~10-20 min for 5 seasons
+python -m ingest.backfill --n 5      # recent seasons: box + shots + tracking
+python -m ingest.backfill --start 1980 --end 2020 --box-only   # deep history (box scores only)
 uvicorn app.main:app --reload        # open http://localhost:8000
 ```
 

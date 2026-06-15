@@ -7,3 +7,5 @@ venv/
 *.egg-info/
 .pytest_cache/
 eval/results/
+_backfill.log
+_tmp_*

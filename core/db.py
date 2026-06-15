@@ -99,7 +99,11 @@ def upsert_df(table_name: str, df: pd.DataFrame, conflict_cols: list[str],
     # player appearing once per team in a season-aggregate endpoint).
     if all(c in df.columns for c in conflict_cols):
         df = df.drop_duplicates(subset=conflict_cols, keep="last")
-    records = df[cols].where(pd.notnull(df[cols]), None).to_dict("records")
+    # astype(object) first: on a float column, .where(..., None) coerces None
+    # back to NaN, and a NaN sent to an INTEGER column raises "integer out of
+    # range" (e.g. old box scores with missing stat values). object dtype lets
+    # the None survive so it inserts as SQL NULL.
+    records = df[cols].astype(object).where(pd.notnull(df[cols]), None).to_dict("records")
 
     written = 0
     with get_engine().begin() as conn:

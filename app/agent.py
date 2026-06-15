@@ -38,14 +38,48 @@ def _model() -> str:
     return os.environ.get("OPENROUTER_MODEL", "openrouter/free")
 
 
+# Providers empirically observed to return junk on the free tier (empty/None
+# content, corrupted tool-call JSON). Env OPENROUTER_IGNORE_PROVIDERS extends
+# this. Nvidia's free Nemotron returns None content even for trivial prompts.
+_DEFAULT_IGNORE_PROVIDERS = ["Nvidia", "Poolside"]
+
+
+def _provider_opts() -> dict:
+    """OpenRouter provider routing (passed via extra_body).
+
+    require_parameters keeps us on providers that actually honor the `tools`
+    parameter — this cuts the 'no tool call / empty response' flakes the free
+    router otherwise produces. The ignore list blacklists providers that return
+    junk; it's seeded with known-bad ones and extended by env
+    OPENROUTER_IGNORE_PROVIDERS (comma-separated provider slugs). Populate it
+    from the per-request provider we log, cross-referenced with the OpenRouter
+    activity dashboard."""
+    ignore = list(_DEFAULT_IGNORE_PROVIDERS) + [
+        p.strip() for p in
+        os.environ.get("OPENROUTER_IGNORE_PROVIDERS", "").split(",") if p.strip()]
+    prov: dict = {"require_parameters": True, "allow_fallbacks": True}
+    if ignore:
+        prov["ignore"] = list(dict.fromkeys(ignore))  # dedup, keep order
+    return {"provider": prov}
+
+
+def _log_provider(resp) -> None:
+    prov = (getattr(resp, "provider", None)
+            or (getattr(resp, "model_extra", None) or {}).get("provider"))
+    log.info("served by provider=%s model=%s", prov, getattr(resp, "model", None))
+
+
 def _complete(client: OpenAI, **kwargs):
     """Call the model with a few retries. openrouter/free routes across many
     free providers, some of which intermittently 429 or 400 on a given request;
     a retry usually lands on a healthy provider."""
+    kwargs.setdefault("extra_body", {}).update(_provider_opts())
     last = None
     for attempt in range(3):
         try:
-            return client.chat.completions.create(**kwargs)
+            resp = client.chat.completions.create(**kwargs)
+            _log_provider(resp)
+            return resp
         except openai.APIError as e:
             last = e
             log.warning("model call failed (attempt %d): %s", attempt + 1, e)
@@ -236,17 +270,30 @@ the filtered one the user asked for."""
 def system_prompt() -> str:
     seasons = available_seasons()
     latest = seasons[-1] if seasons else current_season()
-    season_list = ", ".join(seasons) if seasons else "the last ~5 seasons"
+    prev = seasons[-2] if len(seasons) > 1 else latest
+    # With deep history the full list bloats the prompt (bad for small models);
+    # state it as a contiguous range instead.
+    if len(seasons) > 10:
+        span = f"every season from {seasons[0]} through {latest}"
+    elif seasons:
+        span = ", ".join(seasons)
+    else:
+        span = "the last ~5 seasons"
     return f"""You are an NBA data visualization assistant. Answer questions by \
 rendering a chart, then give a one-or-two-sentence takeaway.
 
 SEASONS — read carefully:
-- The database holds exactly these seasons: {season_list} (regular season + playoffs).
+- The database holds {span} (regular season + playoffs).
 - The CURRENT season is {latest}. When the user says "this season", "this year", \
 "currently", "right now", "lately", or gives no season at all, use {latest} \
 (in SQL: season = '{latest}'; for templates, omit the season param to default to it).
-- "last season" / "last year" means {seasons[-2] if len(seasons) > 1 else latest}.
-- Never use a season outside the list above — those have no data.
+- "last season" / "last year" means {prev}.
+- Never use a season outside that range — those have no data.
+- Box-score stats (points/rebounds/assists/shooting splits, leaders, standings, \
+trends, splits, distributions, comparisons) cover ALL those seasons. But \
+shot-level features — shot_chart, shot_heatmap, defender_distance_efficiency, and \
+the clutch/hustle/defense-tracking tables — only exist for roughly the last 5 \
+seasons. For older seasons, offer a box-score view instead of those.
 
 Decide which tool to use:
 - render_chart — use whenever a curated template fits (it's faster and prettier).
@@ -343,7 +390,16 @@ def run_agent(message: str, theme: str | None = None) -> dict:
         choice = resp.choices[0].message
 
         if not choice.tool_calls:
-            return {"reply": choice.content or "", "figures": figures}
+            # A real decline carries explanatory text (or we already have charts);
+            # an empty reply with no tool call is a free-router flake — nudge once
+            # and let the loop try again (bounded by MAX_TURNS).
+            if (choice.content or "").strip() or figures:
+                return {"reply": choice.content or "", "figures": figures}
+            log.warning("empty response, no tool call — nudging the model")
+            messages.append({"role": "user", "content":
+                             "You returned nothing. Call render_chart or "
+                             "query_chart now to build the chart."})
+            continue
 
         messages.append({"role": "assistant", "content": choice.content,
                          "tool_calls": [tc.model_dump() for tc in choice.tool_calls]})
@@ -384,7 +440,8 @@ def propose_tool_call(message: str, model: str | None = None,
         model=model or _model(),
         messages=[{"role": "system", "content": system_prompt()},
                   {"role": "user", "content": message}],
-        tools=tools, tool_choice="auto", temperature=0.0, max_tokens=600)
+        tools=tools, tool_choice="auto", temperature=0.0, max_tokens=600,
+        extra_body=_provider_opts())
     tcs = resp.choices[0].message.tool_calls
     if not tcs:
         return None
