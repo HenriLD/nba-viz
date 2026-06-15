@@ -269,7 +269,14 @@ SQL rules:
 - For distribution charts (box/violin/histogram) do the OPPOSITE: return RAW
   rows, one per game, with NO GROUP BY/aggregation — e.g. for points in wins vs
   losses: SELECT won, pts FROM v_player_games WHERE name_key LIKE '%jokic%' AND
-  season='2025-26'. Put the value on y and the optional split column on x/series."""
+  season='2025-26'. Put the value on y and the optional split column on x/series.
+- shot_chart and shot_heatmap draw on an NBA half-court from v_shots — return one
+  RAW row per shot with x=loc_x, y=loc_y (add `AND loc_y < 420` to drop half-court
+  heaves). shot_chart also takes a boolean `made` column as `series` so it colors
+  makes vs misses, e.g.: SELECT loc_x, loc_y, made FROM v_shots WHERE
+  name_key LIKE '%curry%' AND season='2025-26' AND period=4 AND loc_y < 420.
+  Use these (not a template) whenever the shot chart/map needs a subset the
+  templates can't express — a quarter, an opponent, clutch, wins only, etc."""
 
 CANNOT_ANSWER = """You CANNOT answer (no data) — say so plainly instead of guessing:
 - Per-game or per-possession clutch timelines, score-margin-at-a-moment, or
@@ -358,6 +365,11 @@ distribution, spread, consistency, range, or "how often" — or compares two \
 groups' shapes — use stat_distribution (or, on the SQL path, return one row per \
 game with chart_type box/violin/histogram). Don't answer a "distribution" \
 question with a two-bar average.
+- A "shot chart", "shot map", or "where does X shoot from" ALWAYS draws on the \
+court — never a table, bar, or count. Plain player-season → the shot_chart / \
+shot_heatmap template. The moment there's a filter (a quarter, an opponent, \
+wins only, clutch, threes only…) → query_chart with chart_type=shot_chart (or \
+shot_heatmap) and the v_shots contract below.
 - Omit season to default to the current one.
 - If a tool returns an error, read it, fix your params or SQL, and try again \
 (you have a couple of retries).

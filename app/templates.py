@@ -200,21 +200,10 @@ def _shot_chart(params: dict) -> ChartResult:
 
     made = df[df["shot_made_flag"] == 1]
     missed = df[df["shot_made_flag"] == 0]
-    fig = go.Figure(court.court_traces())
-    fig.add_trace(go.Scatter(
-        x=missed["loc_x"], y=missed["loc_y"], mode="markers", name="Missed",
-        marker=dict(color=PALETTE["missed"], size=5, symbol="x-thin",
-                    line=dict(width=1.2, color=PALETTE["missed"]), opacity=0.45),
-        text=missed["action_type"],
-        hovertemplate="%{text}<extra>missed</extra>"))
-    fig.add_trace(go.Scatter(
-        x=made["loc_x"], y=made["loc_y"], mode="markers", name="Made",
-        marker=dict(color=PALETTE["made"], size=5.5, opacity=0.75,
-                    line=dict(width=0)),
-        text=made["action_type"],
-        hovertemplate="%{text}<extra>made</extra>"))
+    fig = court.shot_chart_figure(
+        made["loc_x"], made["loc_y"], missed["loc_x"], missed["loc_y"],
+        made_text=made["action_type"], missed_text=missed["action_type"])
     fg = len(made) / len(df)
-    fig.update_layout(**court.court_layout())
     theme.style(
         fig, f"{p.full_name} — shot chart",
         subtitle=f"{season} regular season · {len(df):,} attempts · {fg:.1%} FG",
@@ -233,14 +222,7 @@ def _shot_heatmap(params: dict) -> ChartResult:
     if df.empty:
         raise ValueError(f"No shots found for {p.full_name} in {season}.")
 
-    fig = go.Figure()
-    fig.add_trace(go.Histogram2dContour(
-        x=df["loc_x"], y=df["loc_y"], colorscale=theme.HEAT_SCALE,
-        ncontours=16, showscale=False, line=dict(width=0),
-        contours=dict(coloring="heatmap"), hoverinfo="skip"))
-    for tr in court.court_traces():
-        fig.add_trace(tr)
-    fig.update_layout(**court.court_layout())
+    fig = court.shot_heatmap_figure(df["loc_x"], df["loc_y"])
     theme.style(
         fig, f"{p.full_name} — where the shots come from",
         subtitle=f"{season} regular season · {len(df):,} attempts · "

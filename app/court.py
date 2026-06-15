@@ -12,6 +12,7 @@ import math
 import numpy as np
 import plotly.graph_objects as go
 
+from app import theme
 from app.theme import PALETTE
 
 LINE_W = 2.0
@@ -94,3 +95,40 @@ def court_layout(height: int = 620) -> dict:
         yaxis=dict(range=[-60, 435], visible=False, fixedrange=True,
                    scaleanchor="x", scaleratio=1),
     )
+
+
+# ----- shared shot-visualization builders (used by both the templates and the
+# flexible SQL path, so a model-driven shot chart looks identical to the
+# templated one). Callers add their own title/subtitle via theme.style().
+
+def shot_chart_figure(made_x, made_y, missed_x, missed_y,
+                      made_text=None, missed_text=None) -> go.Figure:
+    """Half-court scatter: makes filled, misses as faint x's."""
+    fig = go.Figure(court_traces())
+    fig.add_trace(go.Scatter(
+        x=missed_x, y=missed_y, mode="markers", name="Missed",
+        marker=dict(color=PALETTE["missed"], size=5, symbol="x-thin",
+                    line=dict(width=1.2, color=PALETTE["missed"]), opacity=0.45),
+        text=missed_text,
+        hovertemplate=("%{text}<extra>missed</extra>" if missed_text is not None
+                       else "<extra>missed</extra>")))
+    fig.add_trace(go.Scatter(
+        x=made_x, y=made_y, mode="markers", name="Made",
+        marker=dict(color=PALETTE["made"], size=5.5, opacity=0.75, line=dict(width=0)),
+        text=made_text,
+        hovertemplate=("%{text}<extra>made</extra>" if made_text is not None
+                       else "<extra>made</extra>")))
+    fig.update_layout(**court_layout())
+    return fig
+
+
+def shot_heatmap_figure(x, y) -> go.Figure:
+    """Half-court shot-density contour (brighter = more volume)."""
+    fig = go.Figure()
+    fig.add_trace(go.Histogram2dContour(
+        x=x, y=y, colorscale=theme.HEAT_SCALE, ncontours=16, showscale=False,
+        line=dict(width=0), contours=dict(coloring="heatmap"), hoverinfo="skip"))
+    for tr in court_traces():
+        fig.add_trace(tr)
+    fig.update_layout(**court_layout())
+    return fig

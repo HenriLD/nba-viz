@@ -18,5 +18,9 @@
   {"q": "How is scoring spread across the Nuggets' roster this season?", "expect_figure": true},
   {"q": "Who improved the most from last season to this one?", "expect_figure": true},
   {"q": "Who steps up in the playoffs compared to the regular season?", "expect_figure": true},
-  {"q": "Predict which team will win the championship next season", "expect_figure": false}
+  {"q": "Predict which team will win the championship next season", "expect_figure": false},
+
+  {"q": "Show me Curry's shot chart in the fourth quarter this season", "expect_figure": true},
+  {"q": "Where does Tatum shoot from in games his team won this season?", "expect_figure": true},
+  {"q": "Curry's shot chart from three-point range only this season", "expect_figure": true}
 ]

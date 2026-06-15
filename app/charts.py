@@ -8,14 +8,14 @@ covers the reshaping that's awkward to express in SQL.
 import pandas as pd
 import plotly.graph_objects as go
 
-from app import theme
+from app import court, theme
 from app.labels import prettify
 from app.result import ChartResult
 from app.theme import PALETTE, SERIES
 from core.db import safe_select
 
 CHART_TYPES = ["bar", "grouped_bar", "line", "scatter", "horizontal_bar",
-               "box", "violin", "histogram", "table"]
+               "box", "violin", "histogram", "shot_chart", "shot_heatmap", "table"]
 TRANSFORMS = ["none", "rolling_mean", "cumulative", "index_to_100", "rank"]
 
 
@@ -168,6 +168,24 @@ def _histogram(df, val, series):
     return fig
 
 
+def _as_made(s: pd.Series) -> pd.Series:
+    """Coerce a 'made' column to boolean — accepts bool, 0/1, or text."""
+    if pd.api.types.is_bool_dtype(s) or pd.api.types.is_numeric_dtype(s):
+        return s.fillna(0).astype(bool)
+    return s.astype(str).str.strip().str.lower().isin(
+        {"true", "t", "1", "made", "make", "yes", "y"})
+
+
+def _shot_chart(df, x, y, series):
+    cat = series if (series and series in df.columns) else None
+    if cat:
+        made_mask = _as_made(df[cat])
+        made, missed = df[made_mask], df[~made_mask]
+    else:  # no make/miss column → plot everything as makes
+        made, missed = df, df.iloc[0:0]
+    return court.shot_chart_figure(made[x], made[y], missed[x], missed[y])
+
+
 def _table(df):
     head = dict(values=[f"<b>{prettify(c)}</b>" for c in df.columns],
                 fill_color="#1f2630", font=dict(color=PALETTE["ink"], size=13),
@@ -185,6 +203,19 @@ def build_figure(df: pd.DataFrame, chart_type: str, x: str | None, y: str | None
         fig = _table(df)
         theme.style(fig, title, subtitle=subtitle,
                     height=min(620, 90 + 28 * len(df)))
+        return fig
+
+    # Court visualizations — same renderers the shot templates use, but fed by
+    # the model's own SQL so any filter is possible (period, opponent, wins...).
+    if chart_type == "shot_chart":
+        _need(df, x, y)
+        fig = _shot_chart(df, x, y, series)
+        theme.style(fig, title, subtitle=subtitle, height=640)
+        return fig
+    if chart_type == "shot_heatmap":
+        _need(df, x, y)
+        fig = court.shot_heatmap_figure(df[x], df[y])
+        theme.style(fig, title, subtitle=subtitle, height=640)
         return fig
 
     # Distribution charts consume raw rows and have their own column needs:
