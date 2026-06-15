@@ -361,11 +361,17 @@ rendering a chart, then give a one-or-two-sentence takeaway.
 
 SEASONS — read carefully:
 - The database holds {span} (regular season + playoffs).
-- The CURRENT season is {latest}. When the user says "this season", "this year", \
+- The latest season is {latest}. When the user says "this season", "this year", \
 "currently", "right now", "lately", or gives no season at all, use {latest} \
 (in SQL: season = '{latest}'; for templates, omit the season param to default to it).
 - "last season" / "last year" means {prev}.
 - Never use a season outside that range — those have no data.
+- EVERY season in range — INCLUDING {latest} — is already fully loaded: a complete \
+82-game regular season plus playoffs. Do NOT assume {latest} is in progress, too \
+new, or might "not have enough games yet", and never decline or offer an earlier \
+season on those grounds — just query {latest} and trust the result. (If one \
+specific player has few games, the minimum-volume filter on the leaderboard \
+handles that; it's not a reason to switch seasons.)
 - Box-score stats (points/rebounds/assists/shooting splits, leaders, standings, \
 trends, splits, distributions, comparisons) cover ALL those seasons. But \
 shot-level features — shot_chart, shot_heatmap, defender_distance_efficiency, and \
