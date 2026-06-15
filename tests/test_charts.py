@@ -91,6 +91,16 @@ def test_shot_chart_missing_coordinate_raises():
         build_figure(df, "shot_chart", "loc_x", "loc_y", "made", "t")
 
 
+@pytest.mark.parametrize("ct", ["bar", "horizontal_bar", "line", "scatter"])
+def test_missing_xy_args_raise_actionable_error_not_keyerror(ct):
+    # The model sometimes omits x/y even with a valid SELECT. That must surface
+    # as an actionable ValueError (so it can retry), never a bare KeyError(None)
+    # that reads as "ERROR: None" and gets rationalized as missing data.
+    df = pd.DataFrame({"player_name": ["a", "b"], "ts_pct": [0.6, 0.55]})
+    with pytest.raises(ValueError, match="unset|not in the query result"):
+        build_figure(df, ct, None, None, None, "t")
+
+
 @pytest.mark.parametrize("ct", ["box", "violin", "histogram"])
 def test_distribution_chart_types_build(ct):
     df = pd.DataFrame({"grp": ["a", "a", "b", "b"], "val": [1.0, 2, 3, 4]})

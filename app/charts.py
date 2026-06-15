@@ -49,12 +49,25 @@ def _apply_transform(df: pd.DataFrame, y: str, transform: str, series: str | Non
 # ------------------------------------------------------------- renderers
 
 def _need(df: pd.DataFrame, *cols: str) -> None:
-    missing = [c for c in cols if c and c not in df.columns]
-    if missing:
-        raise ValueError(
-            f"Column(s) {missing} not in query result. "
-            f"Available columns: {list(df.columns)}. "
-            "Alias your SELECT columns to match the x/y/series you chose.")
+    """Validate the required encoding columns exist. Flags BOTH an unset arg
+    (None/"" — the model forgot to pass x or y) and a wrong name, with an
+    actionable message — otherwise a missing arg became df[None] -> a bare
+    KeyError(None) that surfaced as the uninterpretable 'ERROR: None', which the
+    model couldn't fix and wrongly rationalized as missing data."""
+    unset = any(c is None or c == "" for c in cols)
+    badname = [c for c in cols if c and c not in df.columns]
+    if not unset and not badname:
+        return
+    problems = []
+    if unset:
+        problems.append("a required x/y encoding field was left unset (null)")
+    if badname:
+        problems.append(f"column(s) {badname} are not in the query result")
+    raise ValueError(
+        f"Can't render the chart: {'; '.join(problems)}. "
+        f"Available columns: {list(df.columns)}. Set x/y (and series) to column "
+        "names from your SELECT — for a bar/horizontal_bar, x is the category "
+        "(e.g. player_name) and y is the value (e.g. ts_pct).")
 
 
 def _bar(df, x, y, series, horizontal):
