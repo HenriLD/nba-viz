@@ -80,17 +80,19 @@ def call_log() -> list[dict]:
 def _log_provider(resp) -> None:
     prov = (getattr(resp, "provider", None)
             or (getattr(resp, "model_extra", None) or {}).get("provider"))
-    healthy = True
+    healthy, finish = False, None  # default False: a malformed/no-choices body is unhealthy
     try:
-        msg = resp.choices[0].message
+        choice = resp.choices[0]
+        finish = choice.finish_reason
+        msg = choice.message
         healthy = bool((getattr(msg, "content", None) or "").strip()
                        or getattr(msg, "tool_calls", None))
     except Exception:  # noqa: BLE001
         pass
     _CALL_LOG.append({"provider": prov, "model": getattr(resp, "model", None),
-                      "healthy": healthy})
-    log.info("served by provider=%s model=%s healthy=%s",
-             prov, getattr(resp, "model", None), healthy)
+                      "healthy": healthy, "finish": finish})
+    log.info("served by provider=%s model=%s healthy=%s finish=%s",
+             prov, getattr(resp, "model", None), healthy, finish)
 
 
 def _complete(client: OpenAI, **kwargs):
@@ -416,13 +418,22 @@ def run_agent(message: str, theme: str | None = None) -> dict:
     figures: list[dict] = []
     for _ in range(MAX_TURNS):
         try:
+            # Generous cap: reasoning free models emit a long chain-of-thought
+            # before the tool call, and at 1200 they were truncating mid-reason
+            # (finish_reason=length) and returning nothing. max_tokens is only a
+            # ceiling, so non-reasoning models still stop early.
             resp = _complete(client, model=_model(), messages=messages,
-                             tools=tools, temperature=0.1, max_tokens=1200)
+                             tools=tools, temperature=0.1, max_tokens=4000)
         except openai.APIError as e:
             log.warning("model unavailable after retries: %s", e)
             note = ("The model is having trouble right now — the free router hit "
                     "a bad provider. Please try again in a moment.")
             return {"reply": note, "figures": figures}
+        # The free router occasionally returns an error payload as a "successful"
+        # response with choices=None — treat it like an empty flake and retry.
+        if not getattr(resp, "choices", None):
+            log.warning("response had no choices; retrying")
+            continue
         choice = resp.choices[0].message
 
         if not choice.tool_calls:
@@ -476,7 +487,7 @@ def propose_tool_call(message: str, model: str | None = None,
         model=model or _model(),
         messages=[{"role": "system", "content": system_prompt()},
                   {"role": "user", "content": message}],
-        tools=tools, tool_choice="auto", temperature=0.0, max_tokens=600,
+        tools=tools, tool_choice="auto", temperature=0.0, max_tokens=2500,
         extra_body=_provider_opts())
     _log_provider(resp)
     tcs = resp.choices[0].message.tool_calls
