@@ -176,8 +176,14 @@ def _player_comparison(params: dict) -> ChartResult:
     fig.update_yaxes(title_text=f"{label} per game", tickformat=pctfmt)
     fig.update_xaxes(type="category")
     theme.style(fig, f"{label} — season by season", subtitle=sub_range)
-    return ChartResult(fig, f"Compared {len(players)} players across "
-                            f"{df['season'].nunique()} seasons.")
+    # Per-player numbers (career average + best season) so the takeaway is grounded.
+    bits = []
+    for _, grp in df.groupby("player_id"):
+        nm = grp["player_name"].iloc[0]
+        peak = grp.loc[grp["val"].idxmax()]
+        bits.append(f"{nm}: avg {_fmt(grp['val'].mean(), stat)}, "
+                    f"best {_fmt(peak['val'], stat)} in {peak['season']}")
+    return ChartResult(fig, f"{label} by season — " + "; ".join(bits))
 
 
 def _shot_chart(params: dict) -> ChartResult:
@@ -304,7 +310,8 @@ def _league_leaders(params: dict) -> ChartResult:
     if df.empty:
         raise ValueError(f"No data for {season}.")
 
-    df = df.iloc[::-1]
+    ranked = df                  # val DESC — keep for the summary
+    df = df.iloc[::-1]           # ascending, for the horizontal bar (leader on top)
     colors = [PALETTE["accent"] if i == len(df) - 1 else PALETTE["accent_dim"]
               for i in range(len(df))]
     fig = go.Figure(go.Bar(
@@ -321,8 +328,14 @@ def _league_leaders(params: dict) -> ChartResult:
     theme.style(fig, f"League leaders — {label}",
                 subtitle=f"{season} regular season, per game (min. 20 GP)",
                 height=max(440, 34 * top_n + 150))
-    top = df.iloc[-1]
-    return ChartResult(fig, f"Leader: {top['player_name']} ({top['val']:.2f}).")
+    # Summary lists the FULL ranking (not just the leader) so the model can
+    # write an informed takeaway instead of assuming only one player came back.
+    parts = [f"{i}. {r.player_name} {_fmt(r.val, stat)}"
+             for i, r in enumerate(ranked.itertuples(), 1)]
+    shown = ", ".join(parts[:12])
+    extra = f" (+{len(parts) - 12} more)" if len(parts) > 12 else ""
+    return ChartResult(
+        fig, f"Top {len(ranked)} by {label}, {season}: {shown}{extra}.")
 
 
 def _standings(params: dict) -> ChartResult:
@@ -338,6 +351,7 @@ def _standings(params: dict) -> ChartResult:
     if df.empty:
         raise ValueError(f"No standings for {season}.")
 
+    ranked = df                  # win_pct DESC — keep for the summary
     df = df.iloc[::-1]
     fig = go.Figure()
     for conference, color in (("East", PALETTE["accent2"]),
@@ -360,8 +374,11 @@ def _standings(params: dict) -> ChartResult:
     title = f"{conf.capitalize()}ern Conference" if conf else "NBA standings"
     theme.style(fig, title, subtitle=f"{season} regular season",
                 height=max(520, 27 * len(df) + 150))
-    best = df.iloc[-1]
-    return ChartResult(fig, f"Best record: {best['team']} ({best['wins']}-{best['losses']}).")
+    parts = [f"{r.team} {r.wins}-{r.losses}" for r in ranked.head(8).itertuples()]
+    scope = f"{conf.capitalize()}ern Conference" if conf else "NBA"
+    extra = f" (+{len(ranked) - 8} more)" if len(ranked) > 8 else ""
+    return ChartResult(
+        fig, f"{scope} standings, {season} (by record): " + ", ".join(parts) + extra + ".")
 
 
 def _team_stat_trend(params: dict) -> ChartResult:
