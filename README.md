@@ -1,3 +1,13 @@
+---
+title: Court Vision
+emoji: 🏀
+colorFrom: gray
+colorTo: yellow
+sdk: docker
+app_port: 7860
+pinned: false
+---
+
 # 🏀 Court Vision — NBA charts in plain English
 
 **[Try it live →](https://henrild-nba-viz.hf.space)**
