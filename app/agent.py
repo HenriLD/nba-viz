@@ -38,10 +38,10 @@ def _model() -> str:
     return os.environ.get("OPENROUTER_MODEL", "openrouter/free")
 
 
-# Providers empirically observed to return junk on the free tier (empty/None
-# content, corrupted tool-call JSON). Env OPENROUTER_IGNORE_PROVIDERS extends
-# this. Nvidia's free Nemotron returns None content even for trivial prompts.
-_DEFAULT_IGNORE_PROVIDERS = ["Nvidia", "Poolside"]
+# Providers to blacklist on the free tier — empty by default; populate from the
+# OpenRouter activity dashboard cross-referenced with the per-request provider
+# we log. Extend at runtime via env OPENROUTER_IGNORE_PROVIDERS (comma-sep).
+_DEFAULT_IGNORE_PROVIDERS: list[str] = []
 
 
 def _provider_opts() -> dict:
