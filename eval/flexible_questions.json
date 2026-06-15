@@ -6,5 +6,16 @@
   {"q": "How does Curry's scoring compare against the Lakers vs everyone else?", "expect_figure": true},
   {"q": "Who scored the most points in a single game this season?", "expect_figure": true},
   {"q": "How does Jokic perform in clutch time, the final 2 minutes of close games?", "expect_figure": false},
-  {"q": "How does Tatum play when Jaylen Brown is injured and out?", "expect_figure": false}
+  {"q": "How does Tatum play when Jaylen Brown is injured and out?", "expect_figure": false},
+
+  {"q": "Who's been the most clutch this season?", "expect_figure": true},
+  {"q": "Which team leans on the three-pointer the most this season?", "expect_figure": true},
+  {"q": "Has Curry's game changed as he's gotten older?", "expect_figure": true},
+  {"q": "Who are the most efficient scorers in the league this season?", "expect_figure": true},
+  {"q": "Is the Thunder's success more about their offense or their defense?", "expect_figure": true},
+  {"q": "Which players are the best rim protectors this season?", "expect_figure": true},
+  {"q": "How is scoring spread across the Nuggets' roster this season?", "expect_figure": true},
+  {"q": "Who improved the most from last season to this one?", "expect_figure": true},
+  {"q": "Who steps up in the playoffs compared to the regular season?", "expect_figure": true},
+  {"q": "Predict which team will win the championship next season", "expect_figure": false}
 ]

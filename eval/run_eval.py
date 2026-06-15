@@ -81,21 +81,60 @@ def score_flexible(model: str) -> tuple[int, int, list[str]]:
     return correct, len(FLEXIBLE), notes
 
 
+def _print_provider_stats(entries: list[dict]) -> None:
+    """Aggregate per-provider call health so we can spot empty-response
+    providers to blacklist (env OPENROUTER_IGNORE_PROVIDERS)."""
+    from collections import defaultdict
+    agg: dict = defaultdict(lambda: {"calls": 0, "empty": 0, "models": set()})
+    for e in entries:
+        p = e.get("provider") or "?"
+        agg[p]["calls"] += 1
+        agg[p]["empty"] += 0 if e.get("healthy") else 1
+        if e.get("model"):
+            agg[p]["models"].add(e["model"])
+    if not agg:
+        return
+    print(f"\n=== provider health ({len(entries)} calls across all runs) ===")
+    print(f"{'provider':18} {'calls':>5} {'empty':>5} {'empty%':>7}   models served")
+    for p, s in sorted(agg.items(), key=lambda kv: -kv[1]['empty'] / max(kv[1]['calls'], 1)):
+        pct = s["empty"] / max(s["calls"], 1)
+        flag = "  <-- BLACKLIST?" if pct >= 0.34 and s["calls"] >= 3 else ""
+        models = ", ".join(sorted(m.split("/")[-1] for m in s["models"]))[:48]
+        print(f"{p:18} {s['calls']:>5} {s['empty']:>5} {pct:>6.0%}   {models}{flag}")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--models", nargs="+", required=True,
                         help="OpenRouter model slugs to compare")
     parser.add_argument("--flexible", action="store_true",
                         help="run the end-to-end SQL/agent eval instead")
+    parser.add_argument("--runs", type=int, default=1,
+                        help="repeat the whole eval N times (free models vary)")
     args = parser.parse_args()
 
+    from app import agent
+    agent.reset_call_log()
     scorer = score_flexible if args.flexible else score_model
-    for model in args.models:
-        print(f"\n=== {model} {'(flexible)' if args.flexible else ''} ===")
-        correct, total, failures = scorer(model)
-        print(f"score: {correct}/{total} ({correct / total:.0%})")
-        for f in failures:
-            print(f)
+    mode = "flexible" if args.flexible else "template"
+    tallies: dict = {m: [] for m in args.models}
+    for run in range(1, args.runs + 1):
+        for model in args.models:
+            print(f"\n=== {model} ({mode}) — run {run}/{args.runs} ===")
+            correct, total, failures = scorer(model)
+            tallies[model].append((correct, total))
+            print(f"score: {correct}/{total} ({correct / total:.0%})")
+            for f in failures:
+                print(f)
+
+    if args.runs > 1:
+        print("\n=== score summary (per run) ===")
+        for model, runs in tallies.items():
+            line = ", ".join(f"{c}/{t}" for c, t in runs)
+            avg = sum(c for c, _ in runs) / sum(t for _, t in runs)
+            print(f"{model}: {line}  (avg {avg:.0%})")
+
+    _print_provider_stats(agent.call_log())
     return 0
 
 

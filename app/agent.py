@@ -63,10 +63,34 @@ def _provider_opts() -> dict:
     return {"provider": prov}
 
 
+# Per-call record of which provider/model served a request and whether it came
+# back usable (had content or a tool call). The eval harness aggregates this to
+# flag empty-response providers for the ignore list.
+_CALL_LOG: list[dict] = []
+
+
+def reset_call_log() -> None:
+    _CALL_LOG.clear()
+
+
+def call_log() -> list[dict]:
+    return list(_CALL_LOG)
+
+
 def _log_provider(resp) -> None:
     prov = (getattr(resp, "provider", None)
             or (getattr(resp, "model_extra", None) or {}).get("provider"))
-    log.info("served by provider=%s model=%s", prov, getattr(resp, "model", None))
+    healthy = True
+    try:
+        msg = resp.choices[0].message
+        healthy = bool((getattr(msg, "content", None) or "").strip()
+                       or getattr(msg, "tool_calls", None))
+    except Exception:  # noqa: BLE001
+        pass
+    _CALL_LOG.append({"provider": prov, "model": getattr(resp, "model", None),
+                      "healthy": healthy})
+    log.info("served by provider=%s model=%s healthy=%s",
+             prov, getattr(resp, "model", None), healthy)
 
 
 def _complete(client: OpenAI, **kwargs):
@@ -454,6 +478,7 @@ def propose_tool_call(message: str, model: str | None = None,
                   {"role": "user", "content": message}],
         tools=tools, tool_choice="auto", temperature=0.0, max_tokens=600,
         extra_body=_provider_opts())
+    _log_provider(resp)
     tcs = resp.choices[0].message.tool_calls
     if not tcs:
         return None
