@@ -7,9 +7,11 @@
 # DATABASE_URL. The script is identical either way.
 name: daily-sync
 on:
-  schedule:
-    - cron: "30 11 * * *"   # 11:30 UTC = after all games end (US West late games)
-  workflow_dispatch: {}      # manual trigger button
+  # Daily cron DISABLED 2026-06-14 — the season is over, so there are no new
+  # games to sync. Re-enable for next season by uncommenting the schedule block.
+  # schedule:
+  #   - cron: "30 11 * * *"   # 11:30 UTC = after all games end (US West late games)
+  workflow_dispatch: {}      # manual trigger button (still runs on demand)
 
 jobs:
   sync:
