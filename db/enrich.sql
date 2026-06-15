@@ -19,6 +19,22 @@ CREATE TABLE IF NOT EXISTS clutch_stats (
     PRIMARY KEY (season, player_id)
 );
 
+-- Clutch *efficiency* view — the insightful answer to "best clutch scorer/shooter"
+-- without the raw-points trap. Pure arithmetic over the tiny clutch_stats table
+-- (no game-log scan), so it adds no query cost. ts_pct/efg_pct/pts_per_min make
+-- an efficiency leaderboard a one-liner; passthrough columns (gp, min, fga) carry
+-- the volume guard so a 2-for-2 night can't top the board.
+CREATE OR REPLACE VIEW v_clutch AS
+SELECT
+    season, player_id, player_name, team_abbreviation,
+    gp, w, l, min,
+    fgm, fga, fg_pct, fg3m, fg3a, fg3_pct, ftm, fta, ft_pct,
+    reb, ast, tov, stl, blk, pts, plus_minus, dd2, td3,
+    round(pts / nullif(2 * (fga + 0.44 * fta), 0), 3) AS ts_pct,        -- true shooting
+    round((fgm + 0.5 * fg3m) / nullif(fga, 0), 3)     AS efg_pct,       -- effective FG%
+    round(pts / nullif(min, 0), 2)                    AS pts_per_min    -- scoring rate
+FROM clutch_stats;
+
 -- Hustle: effort metrics not visible in the box score.
 CREATE TABLE IF NOT EXISTS hustle_stats (
     season       TEXT    NOT NULL,

@@ -61,6 +61,7 @@ def score_flexible(model: str) -> tuple[int, int, list[str]]:
     """End-to-end: run the agent and check figure-present matches expectation.
     Note: uses the OPENROUTER_MODEL env var's model via run_agent (does not
     override per-model), so set OPENROUTER_MODEL to compare, or run one model."""
+    import json as _json
     import os
     os.environ["OPENROUTER_MODEL"] = model
     correct, notes = 0, []
@@ -76,6 +77,16 @@ def score_flexible(model: str) -> tuple[int, int, list[str]]:
                 notes.append(f"  WRONG  {case['q']!r}\n"
                              f"         expected {want}, got "
                              f"{'chart' if got_fig else 'decline'}: {r['reply'][:90]}")
+            # Soft sophistication check: a superlative question should land on a
+            # rate/efficiency/uplift metric, not a raw total. Scan the rendered
+            # figure (axis titles carry the SQL aliases) for any wanted keyword.
+            want_metric = case.get("want_metric")
+            if want_metric and got_fig:
+                blob = _json.dumps(r["figures"]).lower()
+                if not any(k in blob for k in want_metric):
+                    notes.append(f"  BASIC  {case['q']!r}\n"
+                                 f"         figure shows no {want_metric} metric "
+                                 "(likely a raw-total leaderboard)")
         except Exception as e:  # noqa: BLE001
             notes.append(f"  ERROR  {case['q']!r}: {e}")
     return correct, len(FLEXIBLE), notes

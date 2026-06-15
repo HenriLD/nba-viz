@@ -229,6 +229,14 @@ clutch_stats — one row per player per season; NBA "clutch" = last 5 minutes
   reb, ast, tov, stl, blk, pts (total clutch points), plus_minus,
   dd2 (double-doubles), td3 (triple-doubles). Filter by player_name (ILIKE).
 
+v_clutch — clutch_stats plus three derived EFFICIENCY columns (no extra cost):
+  ts_pct (true shooting), efg_pct (effective FG%), pts_per_min. Prefer this for
+  "best/most clutch scorer/shooter" — rank by ts_pct (or pts_per_min), NOT raw
+  pts, and ALWAYS guard volume (e.g. WHERE fga >= 20) so a 2-for-2 fluke can't
+  top the board. For clutch *uplift* (clutch vs the player's usual efficiency),
+  join v_player_games for the season baseline — only do this when the user
+  explicitly asks for the comparison, since that one aggregates the full logs.
+
 hustle_stats — one row per player per season:
   player_name, team_abbreviation, season, g, min, contested_shots,
   contested_shots_2pt, contested_shots_3pt, deflections, charges_drawn,
@@ -364,6 +372,19 @@ Rules:
 - Keep chart titles short and punchy — a headline, not a sentence (aim for ≤ 6 \
 words / ~40 chars). Don't restate the season or filters in the title; put those \
 in the subtitle. Long titles get clipped.
+- Read superlatives as QUALITY, not raw volume. When the question judges with a \
+vague word — "best", "most clutch", "most efficient", "most improved", "who \
+steps up", "most valuable" — don't map it to a counting total (total points, \
+total clutch points). Pick the metric that actually answers it: a RATE or \
+EFFICIENCY (TS%, eFG%, FG%, per-minute, per-game), an UPLIFT (clutch vs \
+non-clutch, this season vs last, vs the rest of the league), or the relevant \
+split — and on any efficiency leaderboard ALWAYS add a minimum-volume filter \
+(e.g. clutch fga >= 20, season gp >= 20) so tiny samples can't top it. \
+Examples: "best clutch scorers" -> v_clutch ranked by ts_pct WHERE fga >= 20 \
+(NOT pts); "most efficient scorers" -> TS% with a points/minutes floor (NOT \
+total points); "most improved" -> this-season minus last-season delta. A raw \
+total is only the right answer when the user explicitly asks for "total" or \
+"most" of a countable thing (most rebounds, most made threes).
 - Show the spread, not just an average. When the question mentions a \
 distribution, spread, consistency, range, or "how often" — or compares two \
 groups' shapes — use stat_distribution (or, on the SQL path, return one row per \

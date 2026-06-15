@@ -10,6 +10,10 @@
   {"q": "How do the Lakers' starters perform compared to their bench this season?", "expect_figure": false},
 
   {"q": "Who's been the most clutch this season?", "expect_figure": true},
+  {"q": "Who are the best clutch scorers in the league this season?", "expect_figure": true,
+   "want_metric": ["ts pct", "efg", "per min", "fg pct", "uplift", "true shooting", "efficien"]},
+  {"q": "Who are the most efficient scorers in the league this season?", "expect_figure": true,
+   "want_metric": ["ts pct", "efg", "per", "fg pct", "true shooting", "efficien"]},
   {"q": "Which team leans on the three-pointer the most this season?", "expect_figure": true},
   {"q": "Has Curry's game changed as he's gotten older?", "expect_figure": true},
   {"q": "Who are the most efficient scorers in the league this season?", "expect_figure": true},
