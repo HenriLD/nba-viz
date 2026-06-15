@@ -1,12 +1,16 @@
-"""Entity side-cards: detect players/teams named in a question and build a
+"""Entity side-cards: detect players/teams shown on a chart and build a
 small bio+stats payload for each — with NO LLM call.
 
 The frontend shows these as boxes flanking the chart (players left, teams
-right), each flippable through the entities mentioned. Detection is a
-heuristic exact-match scan of the message against the player/team name
-indexes (full names, surnames, curated aliases, team names/abbrs); stats and
-bio are derived entirely from the existing database. Headshots and team logos
-load client-side from the public NBA CDN.
+right), each flippable through the entities on it. Detection scans the
+*rendered figure* — its title/subtitle plus the names that actually appear in
+the data (trace names, categorical axis labels, table cells) — against the
+player/team name indexes (full names, surnames, curated aliases, team
+names/abbrs). Resolving from the output, not the question, means every entity
+plotted gets a card (all of a leaderboard's players, not just the one named)
+and stray question words ("who's the *best*…") can't conjure a namesake.
+Stats and bio come entirely from the existing database; headshots and team
+logos load client-side from the public NBA CDN.
 
 True bio (height/age/draft) isn't stored, so "bio" here is position (from the
 defense-tracking table when available), current team, season span and
@@ -33,7 +37,7 @@ MAX_PER_SIDE = 5  # cap boxes per side so a stat-stuffed prompt can't blow up
 # players" -> Trae Young. (Full-name and alias keys still match them fine.)
 _COMMON_WORD_SURNAMES = {
     "young", "green", "white", "brown", "love", "smart", "king", "west",
-    "day", "rich", "wood", "banks", "english", "may", "price",
+    "day", "rich", "wood", "banks", "english", "may", "price", "best",
 }
 # Team nicknames that collide with this app's own vocabulary: skip the team
 # match when the next token forms a known non-team phrase (e.g. "heat map").
@@ -102,6 +106,53 @@ def _tokens(message: str) -> list[str]:
     toks = [t for t in re.split(r"[^a-z0-9.'-]+", folded) if t]
     # strip "jokic's" -> "jokic" and "lakers'" -> "lakers"
     return [t[:-2] if t.endswith("'s") else t.rstrip("'") for t in toks]
+
+
+_TAG = re.compile(r"<[^>]+>")
+
+
+def _detag(s: str) -> str:
+    return _TAG.sub(" ", s).strip()
+
+
+def _figure_texts(fig: dict) -> tuple[list[str], list[str]]:
+    """Pull entity-bearing strings out of one rendered figure dict.
+
+    Returns (title_texts, data_texts): the chart's title/subtitle first (its
+    subject — e.g. the player a shot chart is *about*, who never appears in the
+    dot coordinates), then strings drawn from the data itself (trace names,
+    categorical axis labels, table cells). Scanning title before data lets the
+    subject win the first card slots while still surfacing everyone plotted.
+    Numeric axis arrays (which to_json may encode as base64 'bdata' dicts, not
+    lists) are skipped — only string values can name an entity."""
+    title_texts: list[str] = []
+    data_texts: list[str] = []
+
+    layout = fig.get("layout") or {}
+    title = layout.get("title")
+    if isinstance(title, dict):
+        if title.get("text"):
+            title_texts.append(_detag(str(title["text"])))
+        sub = title.get("subtitle")
+        if isinstance(sub, dict) and sub.get("text"):
+            title_texts.append(_detag(str(sub["text"])))
+
+    for tr in fig.get("data") or []:
+        if not isinstance(tr, dict):
+            continue
+        if tr.get("name"):
+            data_texts.append(str(tr["name"]))
+        if tr.get("type") == "table":
+            for part in ("header", "cells"):
+                for col in (tr.get(part) or {}).get("values") or []:
+                    cells = col if isinstance(col, list) else [col]
+                    data_texts += [_detag(str(v)) for v in cells]
+            continue
+        for axis in ("x", "y"):
+            vals = tr.get(axis)
+            if isinstance(vals, list):
+                data_texts += [v for v in vals if isinstance(v, str)]
+    return title_texts, data_texts
 
 
 def extract_entities(message: str) -> tuple[list[int], list[int]]:
@@ -239,11 +290,26 @@ def team_card(tid: int) -> dict | None:
             "bio": " · ".join(bio_parts), "caption": caption, "stats": stats}
 
 
-def cards_for(message: str) -> dict:
-    """{"players": [...], "teams": [...]} for the entities named in `message`.
-    Best-effort: a failure building any single card is skipped, never raised,
-    so side-cards can't break the chat response."""
-    player_ids, team_ids = extract_entities(message)
+def cards_for(figures: list[dict]) -> dict:
+    """{"players": [...], "teams": [...]} for the entities shown on `figures`.
+
+    Resolves from the rendered charts, not the question: titles/subtitles first
+    (the subject), then the names actually plotted, so a leaderboard yields a
+    card per player and question phrasing can't summon a namesake. Best-effort —
+    a failure building any single card is skipped, never raised, so side-cards
+    can't break the chat response."""
+    title_texts, data_texts = [], []
+    for fig in figures or []:
+        try:
+            tt, dt = _figure_texts(fig)
+        except Exception:  # noqa: BLE001 — never let a malformed figure break cards
+            tt, dt = [], []
+        title_texts += tt
+        data_texts += dt
+    # Newline-joined so a name at the end of one label can't form a bogus bigram
+    # with the start of the next; title segments lead so the subject ranks first.
+    blob = "\n".join(title_texts + data_texts)
+    player_ids, team_ids = extract_entities(blob)
     players, teams = [], []
     for pid in player_ids:
         try:

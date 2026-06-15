@@ -32,11 +32,13 @@ def chat(req: ChatRequest):
     except Exception as e:  # surface a friendly error, log the real one
         log.exception("chat failed")
         raise HTTPException(status_code=500, detail=str(e))
-    # Decorative entity side-cards (players/teams named in the question). No LLM
-    # and never fatal — a failure here must not sink an otherwise-good answer.
+    # Decorative entity side-cards (players/teams shown on the rendered charts).
+    # Resolved from the output, not the question, so every plotted entity gets a
+    # card and stray question words can't conjure one. No LLM and never fatal —
+    # a failure here must not sink an otherwise-good answer.
     try:
         from app.cards import cards_for
-        result["entities"] = cards_for(req.message)
+        result["entities"] = cards_for(result.get("figures") or [])
     except Exception:
         log.warning("entity cards failed", exc_info=True)
     return result
