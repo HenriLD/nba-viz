@@ -204,20 +204,44 @@ v_player_games — one row per player per game
   days_rest (int days since prev game, NULL on 1st; =1 means back-to-back),
   game_no (1..N within season),
   min, pts, reb, ast, stl, blk, tov, pf, oreb, dreb,
-  fgm, fga, fg_pct, fg3m, fg3a, fg3_pct, ftm, fta, ft_pct, plus_minus
+  fgm, fga, fg_pct, fg3m, fg3a, fg3_pct, ftm, fta, ft_pct, plus_minus,
+  ts_pct (true shooting), efg_pct (effective FG%), game_score (Hollinger
+    one-number box-score impact). Prefer these for per-game efficiency /
+    impact / "best game" / consistency questions instead of raw pts.
 
 v_team_games — one row per team per game
   team (3-letter), opponent, season, season_type, game_date, is_home, won,
   days_rest, pts, opp_pts, margin (pts - opp_pts),
-  reb, ast, stl, blk, tov, pf, fgm, fga, fg_pct, fg3m, fg3a, fg3_pct, plus_minus
+  reb, ast, stl, blk, tov, pf, oreb, dreb, fgm, fga, fg_pct, fg3m, fg3a,
+  fg3_pct, ftm, fta, ft_pct, plus_minus,
+  efg_pct, poss (possession estimate), off_rtg (points per 100 poss — pace-fair)
 
 v_shots — one row per shot attempt
   player_name, name_key, team_id, season, season_type, game_date,
-  period (1-4; 5+ = OT), action_type, shot_type, is_three (bool),
+  period (1-4; 5+ = OT), minutes_remaining, seconds_remaining,
+  secs_left_period (= min*60+sec left in the period),
+  late_game (bool — 4th/OT with <=5:00 left; the TIME half of "clutch". Use it
+    for "X's shots in the clutch / late-game / crunch time" as a shot_chart
+    filter. NOTE: true clutch also needs score-within-5, which we lack per shot,
+    so say "late-game" not "clutch" if precision matters),
+  action_type, shot_type, is_three (bool),
   shot_zone_basic ('Restricted Area','In The Paint (Non-RA)','Mid-Range',
     'Left Corner 3','Right Corner 3','Above the Break 3'),
   shot_zone_range ('Less Than 8 ft.','8-16 ft.','16-24 ft.','24+ ft.'),
   shot_distance (ft), loc_x, loc_y, made (bool)
+
+player_advanced — one row per player per season (all seasons). Precomputed, so
+  rank league-wide from this, not a live aggregate of v_player_games:
+  player_name, season, gp, min, ts_pct, efg_pct, fg3a_rate (3-pt reliance),
+  ft_rate (free-throw rate), ast_to, pts_per36, reb_per36, ast_per36,
+  pts_per_shot. Filter players with player_name ILIKE '%lastname%'. The go-to
+  for "most efficient / best scorer / best per-minute / most reliant on threes".
+
+team_advanced — one row per team per season (all seasons). Pace-adjusted:
+  team (3-letter), season, gp, wins, off_rtg, def_rtg (LOWER is better),
+  net_rtg, pace (poss/game), efg_pct, tov_rate, oreb_rate, ft_rate. Use for
+  "is X more offense or defense" (compare off_rtg vs def_rtg ranks), "fastest
+  team" (pace), and opponent-strength tiers — pace-fair, unlike raw points.
 
 standings — season, team_city, team_name, conference, playoff_rank,
   wins, losses, win_pct
@@ -291,10 +315,12 @@ SQL rules:
   split the templates can't express."""
 
 CANNOT_ANSWER = """You CANNOT answer (no data) — say so plainly instead of guessing:
-- Per-game or per-possession clutch timelines, score-margin-at-a-moment, or
-  quarter-by-quarter timing (no play-by-play). NOTE: season-aggregate clutch
-  IS available in clutch_stats (use it for "best clutch scorer/shooter"); only
-  the per-moment timeline is missing.
+- Per-possession timelines or the SCORE MARGIN at a moment (no play-by-play),
+  so true clutch (last 5 min AND within 5 points) can't be filtered exactly.
+  But you CAN do the TIME half: clutch/late-game season aggregates live in
+  clutch_stats / v_clutch (use for "best clutch scorer/shooter"), and v_shots
+  has late_game (4th/OT, <=5:00 left) so "X's shots in the clutch/crunch time"
+  IS a real shot_chart — just call it late-game if precision matters.
 - Lineup / on-off impact ("how does the team play with X on vs off the floor"),
   5-man lineup ratings, starter vs bench, who fouled out (no lineup data;
   pf is the game total).
@@ -372,19 +398,35 @@ Rules:
 - Keep chart titles short and punchy — a headline, not a sentence (aim for ≤ 6 \
 words / ~40 chars). Don't restate the season or filters in the title; put those \
 in the subtitle. Long titles get clipped.
-- Read superlatives as QUALITY, not raw volume. When the question judges with a \
-vague word — "best", "most clutch", "most efficient", "most improved", "who \
-steps up", "most valuable" — don't map it to a counting total (total points, \
-total clutch points). Pick the metric that actually answers it: a RATE or \
-EFFICIENCY (TS%, eFG%, FG%, per-minute, per-game), an UPLIFT (clutch vs \
-non-clutch, this season vs last, vs the rest of the league), or the relevant \
-split — and on any efficiency leaderboard ALWAYS add a minimum-volume filter \
-(e.g. clutch fga >= 20, season gp >= 20) so tiny samples can't top it. \
-Examples: "best clutch scorers" -> v_clutch ranked by ts_pct WHERE fga >= 20 \
-(NOT pts); "most efficient scorers" -> TS% with a points/minutes floor (NOT \
-total points); "most improved" -> this-season minus last-season delta. A raw \
-total is only the right answer when the user explicitly asks for "total" or \
-"most" of a countable thing (most rebounds, most made threes).
+- Answer with DEPTH — reach for the advanced views, not the shallowest mapping. \
+There are precomputed advanced rollups (player_advanced, team_advanced, \
+v_clutch) and per-game advanced columns (v_player_games.ts_pct/efg_pct/\
+game_score, v_team_games.off_rtg). Use them by default; a raw counting total \
+or plain per-game average is only right when the user explicitly asks for a \
+"total"/"most" of a countable thing (most rebounds, most made threes).
+- Read superlatives as QUALITY, not volume. For a judgment word — "best", "most \
+efficient/clutch/improved/valuable", "who steps up", "underrated", "carries \
+their team" — pick the metric that actually answers it: an EFFICIENCY/RATE \
+(ts_pct, efg_pct, off_rtg, per-36), an UPLIFT (this season vs last, vs the \
+rest of the league, clutch vs overall), or the relevant split — and on any \
+efficiency leaderboard ALWAYS add a minimum-volume filter (gp >= 20, or clutch \
+fga >= 20) so tiny samples can't top it. Examples: "best clutch scorers" -> \
+v_clutch by ts_pct WHERE fga >= 20; "most efficient scorers" -> player_advanced \
+by ts_pct WHERE gp >= 20; "is the Thunder offense or defense" -> team_advanced \
+comparing off_rtg vs def_rtg league ranks; "most improved" -> player_advanced \
+this season minus last.
+- Compound questions are FIRST-CLASS — never collapse a layered ask to a generic \
+one-dimensional chart, and never silently drop a condition. Decompose into \
+filter + split + the right chart, and satisfy EVERY clause; if one clause has \
+no data, substitute the closest real view and SAY which part you approximated \
+(don't fake it). Worked examples: "what shots does Fox like in the clutch" -> \
+query_chart chart_type=shot_chart from v_shots WHERE name_key LIKE '%fox%' AND \
+late_game AND loc_y < 420 (a late-game shot chart, the real answer). "How is \
+Luka's shot chart affected by defense" -> there is NO per-shot defender data \
+(see boundaries), so DON'T draw a shot chart — use the \
+defender_distance_efficiency template (his FG%/eFG% by how tightly guarded), \
+which is the honest deep answer. "Curry's efficiency in wins vs losses" -> \
+v_player_games ts_pct as box/violin split by won, not a two-bar pts average.
 - Show the spread, not just an average. When the question mentions a \
 distribution, spread, consistency, range, or "how often" — or compares two \
 groups' shapes — use stat_distribution (or, on the SQL path, return one row per \

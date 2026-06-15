@@ -68,6 +68,68 @@ CREATE TABLE IF NOT EXISTS defense_tracking (
     PRIMARY KEY (season, player_id)
 );
 
+-- Advanced per-player-season rollup. MATERIALIZED so the heavy aggregate over
+-- player_game_logs runs ONCE at build, not per query — every "best/most
+-- efficient/most valuable" leaderboard then reads ~500 rows/season instead of
+-- scanning 1.14M. Covers all seasons (TS%/eFG% need only box-score columns we
+-- have back to 1980). Refresh after an ingest:  REFRESH MATERIALIZED VIEW
+-- CONCURRENTLY player_advanced;
+DROP MATERIALIZED VIEW IF EXISTS player_advanced;
+CREATE MATERIALIZED VIEW player_advanced AS
+SELECT
+    player_id,
+    max(player_name)                                              AS player_name,
+    season,
+    count(*)                                                     AS gp,
+    sum(min)                                                     AS min,
+    round(sum(pts) / nullif(2 * (sum(fga) + 0.44 * sum(fta)), 0)::numeric, 3) AS ts_pct,
+    round((sum(fgm) + 0.5 * sum(fg3m)) / nullif(sum(fga), 0)::numeric, 3)     AS efg_pct,
+    round(sum(fg3a)::numeric / nullif(sum(fga), 0), 3)          AS fg3a_rate,   -- 3-point reliance
+    round(sum(fta)::numeric  / nullif(sum(fga), 0), 3)          AS ft_rate,     -- how often they get to the line
+    round(sum(ast)::numeric  / nullif(sum(tov), 0), 2)          AS ast_to,      -- assist-to-turnover
+    round(36 * sum(pts)::numeric / nullif(sum(min), 0), 1)      AS pts_per36,
+    round(36 * sum(reb)::numeric / nullif(sum(min), 0), 1)      AS reb_per36,
+    round(36 * sum(ast)::numeric / nullif(sum(min), 0), 1)      AS ast_per36,
+    round(sum(pts) / nullif(sum(fga) + 0.44 * sum(fta), 0)::numeric, 2)        AS pts_per_shot
+FROM player_game_logs
+WHERE season_type = 'Regular Season'
+GROUP BY player_id, season;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_player_advanced ON player_advanced (player_id, season);
+
+-- Advanced per-team-season rollup: pace-adjusted ratings + four factors (and the
+-- "allowed" mirror), via the Oliver possession estimate. Pace-fair, so it answers
+-- "is X more offense or defense", "fastest team", and opponent-strength tiers far
+-- better than raw per-game points. Also MATERIALIZED (one scan at build).
+DROP MATERIALIZED VIEW IF EXISTS team_advanced;
+CREATE MATERIALIZED VIEW team_advanced AS
+WITH g AS (
+    SELECT tm.abbreviation AS team, t.season,
+           (t.wl = 'W')::int AS win,
+           t.pts, opp.pts AS opp_pts,
+           t.fga, t.fta, t.tov, t.oreb, t.fgm, t.fg3m,
+           opp.fga AS o_fga, opp.fta AS o_fta, opp.tov AS o_tov,
+           opp.oreb AS o_oreb, opp.dreb AS o_dreb, t.dreb AS dreb
+    FROM team_game_logs t
+    JOIN teams tm ON tm.team_id = t.team_id
+    LEFT JOIN team_game_logs opp
+           ON opp.game_id = t.game_id AND opp.team_id <> t.team_id
+    WHERE t.season_type = 'Regular Season'
+)
+SELECT
+    team, season, count(*) AS gp, sum(win) AS wins,
+    round(100 * sum(pts)     / nullif(sum(fga + 0.44 * fta + tov - oreb), 0)::numeric, 1)         AS off_rtg,
+    round(100 * sum(opp_pts) / nullif(sum(o_fga + 0.44 * o_fta + o_tov - o_oreb), 0)::numeric, 1) AS def_rtg,
+    round(100 * sum(pts)     / nullif(sum(fga + 0.44 * fta + tov - oreb), 0)::numeric
+        - 100 * sum(opp_pts) / nullif(sum(o_fga + 0.44 * o_fta + o_tov - o_oreb), 0)::numeric, 1) AS net_rtg,
+    round(sum(fga + 0.44 * fta + tov - oreb)::numeric / nullif(count(*), 0), 1)                   AS pace,   -- poss / game
+    round((sum(fgm) + 0.5 * sum(fg3m)) / nullif(sum(fga), 0)::numeric, 3)                         AS efg_pct,
+    round(sum(tov)  / nullif(sum(fga + 0.44 * fta + tov - oreb), 0)::numeric, 3)                  AS tov_rate,
+    round(sum(oreb)::numeric / nullif(sum(oreb + o_dreb), 0), 3)                                  AS oreb_rate,
+    round(sum(fta)::numeric  / nullif(sum(fga), 0), 3)                                            AS ft_rate
+FROM g
+GROUP BY team, season;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_team_advanced ON team_advanced (team, season);
+
 -- Derived (free) team-season summary: offense, defense, net, record. Lets the
 -- model rank teams and join opponent-strength tiers ("vs a top-10 defense").
 CREATE OR REPLACE VIEW v_team_season AS

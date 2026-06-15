@@ -43,7 +43,14 @@ SELECT
     pgl.fgm, pgl.fga, pgl.fg_pct,
     pgl.fg3m, pgl.fg3a, pgl.fg3_pct,
     pgl.ftm, pgl.fta, pgl.ft_pct,
-    pgl.plus_minus
+    pgl.plus_minus,
+    -- Derived per-game advanced metrics (free — arithmetic on the same row):
+    -- prefer these over raw splits for "efficiency" / "impact" / "best game".
+    round(pgl.pts / nullif(2 * (pgl.fga + 0.44 * pgl.fta), 0)::numeric, 3) AS ts_pct,
+    round((pgl.fgm + 0.5 * pgl.fg3m) / nullif(pgl.fga, 0)::numeric, 3)     AS efg_pct,
+    round((pgl.pts + 0.4 * pgl.fgm - 0.7 * pgl.fga - 0.4 * (pgl.fta - pgl.ftm)
+           + 0.7 * pgl.oreb + 0.3 * pgl.dreb + pgl.stl + 0.7 * pgl.ast
+           + 0.7 * pgl.blk - 0.4 * pgl.pf - pgl.tov)::numeric, 1)         AS game_score
 FROM player_game_logs pgl;
 
 -- One row per team per game, with opponent points and margin via self-join.
@@ -70,7 +77,11 @@ SELECT
     t.fgm, t.fga, t.fg_pct,
     t.fg3m, t.fg3a, t.fg3_pct,
     t.ftm, t.fta, t.ft_pct,
-    t.plus_minus
+    t.plus_minus,
+    round((t.fgm + 0.5 * t.fg3m) / nullif(t.fga, 0)::numeric, 3)  AS efg_pct,
+    -- Possession estimate (Oliver) and points per 100 — a pace-fair scoring rate.
+    (t.fga + 0.44 * t.fta + t.tov - t.oreb)                       AS poss,
+    round(100 * t.pts / nullif(t.fga + 0.44 * t.fta + t.tov - t.oreb, 0)::numeric, 1) AS off_rtg
 FROM team_game_logs t
 JOIN teams tm ON tm.team_id = t.team_id
 LEFT JOIN team_game_logs opp
@@ -84,6 +95,12 @@ SELECT
     lower(unaccent(s.player_name))              AS name_key,
     s.team_id,
     s.season, s.season_type, s.game_date, s.period,
+    s.minutes_remaining, s.seconds_remaining,
+    (s.minutes_remaining * 60 + s.seconds_remaining)  AS secs_left_period,
+    -- Time-based "clutch"/late-game flag: 4th quarter or OT, <= 5:00 left. (The
+    -- official clutch definition also needs score-within-5, which we have no
+    -- per-shot score for — so this is the time half of clutch, not the margin.)
+    (s.period >= 4 AND s.minutes_remaining * 60 + s.seconds_remaining <= 300) AS late_game,
     s.action_type, s.shot_type,
     (s.shot_type = '3PT Field Goal')            AS is_three,
     s.shot_zone_basic, s.shot_zone_area, s.shot_zone_range,
