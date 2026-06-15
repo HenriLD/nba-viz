@@ -319,7 +319,10 @@ Rules:
   charts "side by side", or naturally wants a few views (e.g. "compare Curry's
   and Tatum's shot charts" -> two shot_chart calls; "show LeBron's scoring and
   shooting trends" -> two player_stat_trend calls). Don't render multiple
-  unless it clearly helps; one good chart beats several redundant ones.
+  unless it clearly helps; one good chart beats several redundant ones. For \
+  "shot diet / shot profile / how X's shooting evolved", prefer the single \
+  shot_zone_breakdown template (volume + accuracy in one chart) over multiple \
+  grouped-bar charts, which get cramped side by side.
 - Pass player/team names as the user said them to render_chart (server fuzzy-matches).
 - Keep chart titles short and punchy — a headline, not a sentence (aim for ≤ 6 \
 words / ~40 chars). Don't restate the season or filters in the title; put those \
@@ -332,8 +335,11 @@ question with a two-bar average.
 - Omit season to default to the current one.
 - If a tool returns an error, read it, fix your params or SQL, and try again \
 (you have a couple of retries).
-- After a chart renders, give a brief data-driven insight from the tool result \
-summary — don't describe the chart visually."""
+- Your reply text is ONLY the takeaway: 1–3 sentences of data-driven insight \
+drawn from the tool result summary. Do NOT restate the chart's title or subtitle, \
+do NOT add headings, and do NOT label or describe the charts — they render \
+themselves. Start straight into the insight (e.g. "Curry's profile has shifted \
+sharply toward threes…"), no preamble."""
 
 
 def _parse_args(raw: str) -> dict:

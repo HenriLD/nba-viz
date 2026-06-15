@@ -101,6 +101,10 @@
     width:min(1150px, 94vw); position:relative; left:50%; transform:translateX(-50%);
   }
   .chart-group.multi .chart { flex:1 1 460px; min-width:0; margin:0; }
+  /* Bar/histogram charts need width: cramming them side by side overcrowds the
+     bars and clips the legend, so stack them full-width instead. */
+  .chart-group.multi.wide { width:auto; left:auto; transform:none; }
+  .chart-group.wide .chart { flex:1 1 100%; }
   .chart:hover { box-shadow:0 10px 34px rgba(0,0,0,0.45);
                  border-color:color-mix(in srgb, var(--accent) 30%, transparent); }
   @keyframes chartIn { from{opacity:0;transform:translateY(14px) scale(.99);} to{opacity:1;transform:none;} }
@@ -201,6 +205,7 @@
   .stage .chart-area { flex:1 1 auto; min-width:0; }
   .stage .chart-group { display:flex; flex-wrap:wrap; gap:16px; }
   .stage .chart-group .chart { flex:1 1 360px; min-width:0; margin:0; }
+  .stage .chart-group.wide .chart { flex:1 1 100%; }   /* stack bar charts */
   .rail { flex:0 0 198px; width:198px; }
   .rail.flip { cursor:pointer; }
 
@@ -595,10 +600,17 @@ function renderFigures(group, figures) {
   return items;
 }
 
+// Bar/histogram charts need width — when several are shown together, stack them
+// full-width instead of cramming them side by side (overcrowds + clips legend).
+function isWide(figures) {
+  return figures.some(f => (f.data || []).some(t => t.type === 'bar' || t.type === 'histogram'));
+}
+
 // Charts alone, in the centered chat column (no entities named).
 function addCharts(figures) {
   const group = document.createElement('div');
-  group.className = 'chart-group' + (figures.length > 1 ? ' multi' : '');
+  group.className = 'chart-group' + (figures.length > 1 ? ' multi' : '')
+    + (figures.length > 1 && isWide(figures) ? ' wide' : '');
   chat.appendChild(group);
   renderFigures(group, figures);
   group.scrollIntoView({ behavior: 'smooth', block: 'end' });
@@ -666,7 +678,7 @@ function addStage(figures, ents) {
     const area = document.createElement('div');
     area.className = 'chart-area';
     group = document.createElement('div');
-    group.className = 'chart-group';
+    group.className = 'chart-group' + (figures.length > 1 && isWide(figures) ? ' wide' : '');
     area.appendChild(group);
     stage.appendChild(area);
   }

@@ -42,7 +42,8 @@ def test_vertical_bar_gets_extra_bottom_margin_and_pinned_caption():
     fig = go.Figure(go.Bar(x=["a", "b"], y=[1, 2], orientation="v"))
     theme.style(fig, "title")
     assert fig.layout.margin.b == 92
-    assert fig.layout.annotations[-1].yshift == -78
+    cap = fig.layout.annotations[-1]
+    assert cap.yshift == -82 and cap.yanchor == "bottom"
 
 
 def test_non_bar_keeps_default_margin():

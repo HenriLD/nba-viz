@@ -219,13 +219,15 @@ def style(fig: go.Figure, title: str, subtitle: str | None = None,
         title_font=dict(color=PALETTE["muted"], size=12),
     )
     if source:
-        # Pin the caption to the figure's bottom edge (a fixed pixel drop from
+        # Pin the caption near the figure's bottom edge (a fixed pixel drop from
         # the plot area) so it stays below the rotated x labels regardless of
-        # chart height, instead of floating just under the axis.
+        # chart height. Anchor by its BOTTOM with a ~10px gap so descenders
+        # don't get clipped off the edge — but no higher, to stay clear of the
+        # top legend.
         fig.add_annotation(
             text="Court Vision · data: stats.nba.com",
             xref="paper", yref="paper", x=1, y=0,
-            xanchor="right", yanchor="top", yshift=-(b_margin - 14),
+            xanchor="right", yanchor="bottom", yshift=-(b_margin - 10),
             showarrow=False,
             font=dict(size=10, color=PALETTE["muted"], family=FONT),
         )
