@@ -5,8 +5,9 @@
   {"q": "Which team has the best record on the second night of back-to-backs?", "expect_figure": true},
   {"q": "How does Curry's scoring compare against the Lakers vs everyone else?", "expect_figure": true},
   {"q": "Who scored the most points in a single game this season?", "expect_figure": true},
-  {"q": "How does Jokic perform in clutch time, the final 2 minutes of close games?", "expect_figure": false},
-  {"q": "How does Tatum play when Jaylen Brown is injured and out?", "expect_figure": false},
+  {"q": "How does Jokic perform in clutch time this season?", "expect_figure": true},
+  {"q": "How does Tatum play in games Jaylen Brown sits out?", "expect_figure": true},
+  {"q": "How do the Lakers' starters perform compared to their bench this season?", "expect_figure": false},
 
   {"q": "Who's been the most clutch this season?", "expect_figure": true},
   {"q": "Which team leans on the three-pointer the most this season?", "expect_figure": true},
