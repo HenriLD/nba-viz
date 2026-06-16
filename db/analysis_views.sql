@@ -105,5 +105,12 @@ SELECT
     (s.shot_type = '3PT Field Goal')            AS is_three,
     s.shot_zone_basic, s.shot_zone_area, s.shot_zone_range,
     s.shot_distance, s.loc_x, s.loc_y,
-    (s.shot_made_flag = 1)                      AS made
-FROM shots s;
+    (s.shot_made_flag = 1)                      AS made,
+    -- Game context joined from the shooter's team box score (1:1 on game+team),
+    -- so shots can be filtered/colored by opponent or by win/loss — "shots vs
+    -- the Lakers", "shots in wins". opponent is the 3-letter abbreviation.
+    trim(right(tgl.matchup, 3))                 AS opponent,
+    (tgl.wl = 'W')                              AS won
+FROM shots s
+LEFT JOIN team_game_logs tgl
+       ON tgl.game_id = s.game_id AND tgl.team_id = s.team_id;

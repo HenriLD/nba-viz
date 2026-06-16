@@ -228,7 +228,10 @@ v_shots — one row per shot attempt
   shot_zone_basic ('Restricted Area','In The Paint (Non-RA)','Mid-Range',
     'Left Corner 3','Right Corner 3','Above the Break 3'),
   shot_zone_range ('Less Than 8 ft.','8-16 ft.','16-24 ft.','24+ ft.'),
-  shot_distance (ft), loc_x, loc_y, made (bool)
+  shot_distance (ft), loc_x, loc_y, made (bool),
+  opponent (3-letter abbr the shot was taken against), won (bool — shooter's
+    team won that game). So "shots vs the Lakers" = WHERE opponent='LAL';
+    "shots in wins" = WHERE won
 
 player_advanced — one row per player per season (all seasons). Precomputed, so
   rank league-wide from this, not a live aggregate of v_player_games:
