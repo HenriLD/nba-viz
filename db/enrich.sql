@@ -96,6 +96,30 @@ WHERE season_type = 'Regular Season'
 GROUP BY player_id, season;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_player_advanced ON player_advanced (player_id, season);
 
+-- Season-over-season improvement, precomputed so "most improved / breakout /
+-- declined" is a trivial ORDER BY a delta — not a fragile two-season self-join
+-- the model writes by hand (which errored and fell back unguarded). A plain
+-- VIEW over the small player_advanced table (self-join on the prior season, so
+-- it stays fresh when player_advanced is refreshed; no game-log scan). The
+-- prior-season key is derived from the season string: '2025-26' -> '2024-25'.
+-- Floored at gp >= 20 in BOTH seasons so noise jumps (a 5-game sample doubling)
+-- can't top the board; rank by any *_delta. Positive = improved.
+CREATE OR REPLACE VIEW player_improvement AS
+SELECT
+    a.player_id, a.player_name, a.season,
+    a.gp, b.gp AS prev_gp,
+    a.ts_pct,    b.ts_pct    AS prev_ts_pct,    round(a.ts_pct    - b.ts_pct,    3) AS ts_pct_delta,
+    a.efg_pct,   b.efg_pct   AS prev_efg_pct,   round(a.efg_pct   - b.efg_pct,   3) AS efg_pct_delta,
+    a.pts_per36, b.pts_per36 AS prev_pts_per36, round(a.pts_per36 - b.pts_per36, 1) AS pts_per36_delta,
+    a.reb_per36, b.reb_per36 AS prev_reb_per36, round(a.reb_per36 - b.reb_per36, 1) AS reb_per36_delta,
+    a.ast_per36, b.ast_per36 AS prev_ast_per36, round(a.ast_per36 - b.ast_per36, 1) AS ast_per36_delta
+FROM player_advanced a
+JOIN player_advanced b
+  ON b.player_id = a.player_id
+ AND b.season = (left(a.season, 4)::int - 1)::text || '-'
+              || lpad((left(a.season, 4)::int % 100)::text, 2, '0')
+WHERE a.gp >= 20 AND b.gp >= 20;
+
 -- Advanced per-team-season rollup: pace-adjusted ratings + four factors (and the
 -- "allowed" mirror), via the Oliver possession estimate. Pace-fair, so it answers
 -- "is X more offense or defense", "fastest team", and opponent-strength tiers far

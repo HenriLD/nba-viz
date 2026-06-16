@@ -239,6 +239,17 @@ player_advanced — one row per player per season (all seasons). Precomputed, so
   Leaderboards MUST filter gp >= 30 (and pts_per36 >= 15 for an efficient
   SCORER) — unfiltered, the TS% leaders are low-minute rim-runners.
 
+player_improvement — one row per player per season: season-over-season change vs
+  the SAME player last season. player_name, season, gp, prev_gp, and for ts_pct,
+  efg_pct, pts_per36, reb_per36, ast_per36: the current value, prev_<x> (last
+  season), and <x>_delta (current - prev; POSITIVE = improved). Already floored
+  at gp >= 20 in both seasons. Use for "most improved / breakout / fell off /
+  declined": just ORDER BY the relevant *_delta (DESC for improved). Do NOT
+  hand-write a two-season self-join — query this instead. "Most improved
+  scorers" -> ORDER BY pts_per36_delta DESC; "biggest efficiency jump" ->
+  ts_pct_delta DESC. (Only the last ~5 seasons of deltas are dense; a player
+  needs both seasons on record to appear.)
+
 team_advanced — one row per team per season (all seasons). Pace-adjusted:
   team (3-letter), season, gp, wins, off_rtg, def_rtg (LOWER is better),
   net_rtg, pace (poss/game), efg_pct, tov_rate, oreb_rate, ft_rate. Use for
@@ -422,8 +433,8 @@ their team" — pick the metric that actually answers it: an EFFICIENCY/RATE \
 rest of the league, clutch vs overall), or the relevant split. Examples: "best \
 clutch scorers" -> v_clutch by ts_pct; "most efficient scorers" -> \
 player_advanced by ts_pct; "is the Thunder offense or defense" -> team_advanced \
-comparing off_rtg vs def_rtg league ranks; "most improved" -> player_advanced \
-this season minus last.
+comparing off_rtg vs def_rtg league ranks; "most improved" -> player_improvement \
+ORDER BY pts_per36_delta DESC (never hand-roll the two-season join).
 - MINIMUM-VOLUME GUARD — mandatory on EVERY rate/efficiency/ratio/per-game \
 leaderboard, or fringe players with a handful of attempts dominate (a 2-for-2 \
 night reads as the "best shooter"). Always add BOTH a games floor AND a \
