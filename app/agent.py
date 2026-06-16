@@ -299,6 +299,16 @@ defense_tracking — one row per player per season (NBA tracking "defended" shot
   gp >= 30 AND freq >= 0.05 (or d_fga >= 150) — else 2-game players with a
   near-0 d_fg_pct top it. Rank by pct_plusminus (most negative), not d_fg_pct.
 
+defender_shooting — one row per player per season PER defender-distance bucket:
+  player_name, season, def_dist_range ('0-2 Feet - Very Tight', '2-4 Feet -
+  Tight', '4-6 Feet - Open', '6+ Feet - Wide Open'), gp, fga_frequency (share of
+  the player's shots at that distance), fgm, fga, fg_pct, efg_pct, fg3m, fg3a,
+  fg3_pct. This is how a SHOOTER performs by how tightly they were guarded —
+  THE source for "how does X shoot vs tight/open defense", "does X shoot better
+  when wide open", "X's shooting against pressure". One bar per def_dist_range
+  (chart_type bar/grouped_bar, x=def_dist_range, y=fg_pct or efg_pct), ordered
+  tight→open. Filter player_name (ILIKE '%curry%'); recent ~5 seasons only.
+
 v_team_season — one row per team per season (derived):
   team (3-letter), season, gp, wins, losses, pts_pg (offense), opp_pts_pg
   (defense — lower is better), net_pg, fg3a_pg, fg3_pct. Use to rank teams or
