@@ -11,6 +11,7 @@ Names are resolved server-side (templates) or via unaccented name_key columns
 import json
 import logging
 import os
+import threading
 import time
 
 import openai
@@ -103,6 +104,25 @@ def _log_provider(resp) -> None:
              prov, getattr(resp, "model", None), healthy, finish)
 
 
+_rate_lock = threading.Lock()
+_last_call = [0.0]
+
+
+def _throttle() -> None:
+    """Global rate gate for benchmarking against OpenRouter's free tier (16
+    req/min cap). Set AGENT_MAX_RPM to space ALL outgoing calls — across threads
+    — at least 60/rpm apart. Off (0) by default; production never throttles."""
+    rpm = float(os.environ.get("AGENT_MAX_RPM", "0") or 0)
+    if rpm <= 0:
+        return
+    interval = 60.0 / rpm
+    with _rate_lock:
+        wait = _last_call[0] + interval - time.monotonic()
+        if wait > 0:
+            time.sleep(wait)
+        _last_call[0] = time.monotonic()
+
+
 def _complete(client: OpenAI, **kwargs):
     """Call the model with a few retries. openrouter/free routes across many
     free providers, some of which intermittently 429 or 400 on a given request;
@@ -110,6 +130,7 @@ def _complete(client: OpenAI, **kwargs):
     kwargs.setdefault("extra_body", {}).update(_provider_opts())
     last = None
     for attempt in range(3):
+        _throttle()
         try:
             resp = client.chat.completions.create(**kwargs)
             _log_provider(resp)

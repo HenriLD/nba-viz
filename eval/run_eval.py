@@ -166,11 +166,16 @@ def main() -> int:
     parser.add_argument("--sql-only", action="store_true",
                         help="EXPERIMENT: drop render_chart, force SQL for everything "
                              "(sets AGENT_SQL_ONLY; skips the template routing check)")
+    parser.add_argument("--max-rpm", type=float, default=0,
+                        help="global cap on outgoing model calls/min (sets "
+                             "AGENT_MAX_RPM) — stay under OpenRouter's free 16/min")
     args = parser.parse_args()
 
     import os
     if args.sql_only:
         os.environ["AGENT_SQL_ONLY"] = "1"
+    if args.max_rpm and args.max_rpm > 0:
+        os.environ["AGENT_MAX_RPM"] = str(args.max_rpm)
 
     agent.reset_call_log()
     n_tmpl = sum(1 for c in CASES if c.get("template"))
