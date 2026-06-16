@@ -236,6 +236,8 @@ player_advanced — one row per player per season (all seasons). Precomputed, so
   ft_rate (free-throw rate), ast_to, pts_per36, reb_per36, ast_per36,
   pts_per_shot. Filter players with player_name ILIKE '%lastname%'. The go-to
   for "most efficient / best scorer / best per-minute / most reliant on threes".
+  Leaderboards MUST filter gp >= 30 (and pts_per36 >= 15 for an efficient
+  SCORER) — unfiltered, the TS% leaders are low-minute rim-runners.
 
 team_advanced — one row per team per season (all seasons). Pace-adjusted:
   team (3-letter), season, gp, wins, off_rtg, def_rtg (LOWER is better),
@@ -271,6 +273,9 @@ defense_tracking — one row per player per season (NBA tracking "defended" shot
   freq (share of opponent shots they defended), d_fgm, d_fga,
   d_fg_pct (FG% allowed when defending), normal_fg_pct (those shooters' usual
   FG%), pct_plusminus (d_fg_pct - normal_fg_pct; NEGATIVE = good defense).
+  For a "best defender / rim protector" leaderboard you MUST filter volume —
+  gp >= 30 AND freq >= 0.05 (or d_fga >= 150) — else 2-game players with a
+  near-0 d_fg_pct top it. Rank by pct_plusminus (most negative), not d_fg_pct.
 
 v_team_season — one row per team per season (derived):
   team (3-letter), season, gp, wins, losses, pts_pg (offense), opp_pts_pg
@@ -414,13 +419,22 @@ or plain per-game average is only right when the user explicitly asks for a \
 efficient/clutch/improved/valuable", "who steps up", "underrated", "carries \
 their team" — pick the metric that actually answers it: an EFFICIENCY/RATE \
 (ts_pct, efg_pct, off_rtg, per-36), an UPLIFT (this season vs last, vs the \
-rest of the league, clutch vs overall), or the relevant split — and on any \
-efficiency leaderboard ALWAYS add a minimum-volume filter (gp >= 20, or clutch \
-fga >= 20) so tiny samples can't top it. Examples: "best clutch scorers" -> \
-v_clutch by ts_pct WHERE fga >= 20; "most efficient scorers" -> player_advanced \
-by ts_pct WHERE gp >= 20; "is the Thunder offense or defense" -> team_advanced \
+rest of the league, clutch vs overall), or the relevant split. Examples: "best \
+clutch scorers" -> v_clutch by ts_pct; "most efficient scorers" -> \
+player_advanced by ts_pct; "is the Thunder offense or defense" -> team_advanced \
 comparing off_rtg vs def_rtg league ranks; "most improved" -> player_advanced \
 this season minus last.
+- MINIMUM-VOLUME GUARD — mandatory on EVERY rate/efficiency/ratio/per-game \
+leaderboard, or fringe players with a handful of attempts dominate (a 2-for-2 \
+night reads as the "best shooter"). Always add BOTH a games floor AND a \
+volume/role floor for the metric: \
+  • player_advanced (ts_pct, efg_pct, ast_to, per-36, improvement): \
+    WHERE gp >= 30 — and for an efficient SCORER also AND pts_per36 >= 15 \
+    (high TS% on 8 pts/36 is a rim-running big, not a scorer). \
+  • v_clutch: WHERE fga >= 20.  • hustle_stats / defense_tracking (rim/defense \
+    "best"): WHERE gp >= 30 AND freq >= 0.05 (or d_fga >= 150). \
+  • team_advanced needs none (every team plays a full season). \
+  When in doubt, gp >= 30 plus a sensible floor on the metric's denominator.
 - Compound questions are FIRST-CLASS — never collapse a layered ask to a generic \
 one-dimensional chart, and never silently drop a condition. Decompose into \
 filter + split + the right chart, and satisfy EVERY clause; if one clause has \
