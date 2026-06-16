@@ -149,16 +149,20 @@ environment variables as secrets on the host.
 
 ## Picking a model
 
-The agent is provider-agnostic (any OpenRouter slug with tool calling). An
-eval harness scores candidates on 16 questions for template + parameter
-accuracy, no database required:
+The agent is provider-agnostic (any OpenRouter slug with tool calling). A single
+question set — [`eval/flexible_questions.json`](eval/flexible_questions.json) —
+drives the eval. Each case is `{q, expect_figure, want_metric?, template?,
+params?}`: the harness runs the full agent and scores whether a chart renders
+when expected (or the model correctly declines), with soft signals for whether
+interpretive questions used a quality metric (`want_metric`) and whether
+template-route questions picked the right template (`template`).
 
 ```sh
-# template selection + slot filling (cheap, no DB execution)
-python -m eval.run_eval --models moonshotai/kimi-k2 qwen/qwen-2.5-72b-instruct
+# end-to-end: model writes SQL or picks a template, it executes, a chart renders
+python -m eval.run_eval --models moonshotai/kimi-k2 --runs 3
 
-# end-to-end: the model writes SQL, it executes, a chart must render (or decline)
-python -m eval.run_eval --flexible --models moonshotai/kimi-k2
+# multi-model comparison: template accuracy, latency, tokens (eval/benchmark.py)
+python -m eval.benchmark --models moonshotai/kimi-k2 qwen/qwen-2.5-72b-instruct
 ```
 
 ## Project layout
@@ -182,6 +186,7 @@ query examples on one page — visual QA with no LLM calls.
    [`app/templates.py`](app/templates.py) (parameterized SQL + Plotly builder).
 2. Register it in `CATALOG` with a description written *for the model* — say
    when to use it, not just what it is.
-3. Add a case to [`eval/questions.json`](eval/questions.json) and re-run the eval.
+3. Add a case to [`eval/flexible_questions.json`](eval/flexible_questions.json)
+   (set `template`/`params` to assert routing) and re-run the eval.
 
 PRs welcome — more templates, better court drawing, more seasons.

@@ -1,29 +1,33 @@
-"""Compare candidate models on the chart agent.
+"""Benchmark the chart agent end-to-end on the single consolidated question
+set, eval/flexible_questions.json.
 
-Two modes:
-  (default) template selection + slot filling — one model call per question,
-            no DB or execution needed. Fast and cheap.
-  --flexible  end-to-end: runs the full agent (writes SQL, executes it,
-            renders) and checks a figure is produced — or correctly declined.
-            Needs DATABASE_URL and costs more tokens.
+Each case: {q, expect_figure, want_metric?, template?, params?}. The harness
+runs the FULL agent (the model writes SQL or picks a template, executes, and
+renders) and scores one thing: a figure is produced when expected, or the model
+correctly declines. Two soft signals are reported but don't change the score:
+  - want_metric: an interpretive question should land on a quality metric
+                 (TS%, rating, delta…), not a raw total.
+  - template:    a template-route question should use that template (routing).
 
 Usage:
-    python -m eval.run_eval --models moonshotai/kimi-k2 qwen/qwen-2.5-72b-instruct
-    python -m eval.run_eval --flexible --models moonshotai/kimi-k2
+    python -m eval.run_eval --models openrouter/free
+    python -m eval.run_eval --models openrouter/free --runs 3
 """
 import argparse
 import json
 import sys
 from pathlib import Path
 
-from app.agent import propose_tool_call, run_agent
+from app import agent
 
 _DIR = Path(__file__).parent
-QUESTIONS = json.loads((_DIR / "questions.json").read_text())
-FLEXIBLE = json.loads((_DIR / "flexible_questions.json").read_text())
+CASES = json.loads((_DIR / "flexible_questions.json").read_text())
 
 
 def _param_ok(key: str, expected, actual) -> bool:
+    """Loose param match for the template-routing path (also used by
+    eval/benchmark.py). Names match on substring (the model may expand 'sga');
+    a players list just needs 2+ entries; everything else matches exactly."""
     if actual is None:
         return False
     if key in ("player", "team"):
@@ -34,62 +38,56 @@ def _param_ok(key: str, expected, actual) -> bool:
     return str(actual).lower() == str(expected).lower()
 
 
-def score_model(model: str) -> tuple[int, int, list[str]]:
-    correct, failures = 0, []
-    for case in QUESTIONS:
-        try:
-            got = propose_tool_call(case["q"], model=model)
-        except Exception as e:  # noqa: BLE001
-            failures.append(f"  ERROR  {case['q']!r}: {e}")
-            continue
-        if not got:
-            failures.append(f"  NOTOOL {case['q']!r}")
-            continue
-        ok = got["template_id"] == case["template_id"] and all(
-            _param_ok(k, v, got["params"].get(k))
-            for k, v in case["params"].items())
-        if ok:
-            correct += 1
-        else:
-            failures.append(f"  WRONG  {case['q']!r}\n"
-                            f"         want {case['template_id']} {case['params']}\n"
-                            f"         got  {got['template_id']} {got['params']}")
-    return correct, len(QUESTIONS), failures
-
-
-def score_flexible(model: str) -> tuple[int, int, list[str]]:
-    """End-to-end: run the agent and check figure-present matches expectation.
-    Note: uses the OPENROUTER_MODEL env var's model via run_agent (does not
-    override per-model), so set OPENROUTER_MODEL to compare, or run one model."""
+def score(model: str) -> tuple[int, int, list[str]]:
+    """Run the full agent on every case; return (figure_correct, total, notes)."""
     import json as _json
     import os
     os.environ["OPENROUTER_MODEL"] = model
+
+    # Capture which tool/template each answer used, for the soft routing check.
+    used: list[str] = []
+    orig_dispatch = agent._dispatch
+
+    def spy(name, args):
+        used.append(args.get("template_id") if name == "render_chart" else "query_chart")
+        return orig_dispatch(name, args)
+
+    agent._dispatch = spy
     correct, notes = 0, []
-    for case in FLEXIBLE:
-        try:
-            r = run_agent(case["q"])
+    try:
+        for case in CASES:
+            used.clear()
+            try:
+                r = agent.run_agent(case["q"])
+            except Exception as e:  # noqa: BLE001
+                notes.append(f"  ERROR  {case['q']!r}: {e}")
+                continue
             got_fig = len(r["figures"]) > 0
-            ok = got_fig == case["expect_figure"]
-            if ok:
+            if got_fig == case["expect_figure"]:
                 correct += 1
             else:
                 want = "a chart" if case["expect_figure"] else "a decline"
                 notes.append(f"  WRONG  {case['q']!r}\n"
                              f"         expected {want}, got "
                              f"{'chart' if got_fig else 'decline'}: {r['reply'][:90]}")
-            # Soft sophistication check: a superlative question should land on a
-            # rate/efficiency/uplift metric, not a raw total. Scan the rendered
-            # figure (axis titles carry the SQL aliases) for any wanted keyword.
-            want_metric = case.get("want_metric")
-            if want_metric and got_fig:
+            if not got_fig:
+                continue
+            # Soft: did a superlative land on a rate/efficiency/uplift metric?
+            wm = case.get("want_metric")
+            if wm:
                 blob = _json.dumps(r["figures"]).lower()
-                if not any(k in blob for k in want_metric):
+                if not any(k in blob for k in wm):
                     notes.append(f"  BASIC  {case['q']!r}\n"
-                                 f"         figure shows no {want_metric} metric "
+                                 f"         figure shows no {wm} metric "
                                  "(likely a raw-total leaderboard)")
-        except Exception as e:  # noqa: BLE001
-            notes.append(f"  ERROR  {case['q']!r}: {e}")
-    return correct, len(FLEXIBLE), notes
+            # Soft: did a template-route question use the expected template?
+            tmpl = case.get("template")
+            if tmpl and tmpl not in used:
+                notes.append(f"  ROUTE  {case['q']!r}\n"
+                             f"         expected template {tmpl}, used {used}")
+    finally:
+        agent._dispatch = orig_dispatch
+    return correct, len(CASES), notes
 
 
 def _print_provider_stats(entries: list[dict]) -> None:
@@ -118,25 +116,26 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--models", nargs="+", required=True,
                         help="OpenRouter model slugs to compare")
-    parser.add_argument("--flexible", action="store_true",
-                        help="run the end-to-end SQL/agent eval instead")
     parser.add_argument("--runs", type=int, default=1,
                         help="repeat the whole eval N times (free models vary)")
     args = parser.parse_args()
 
-    from app import agent
     agent.reset_call_log()
-    scorer = score_flexible if args.flexible else score_model
-    mode = "flexible" if args.flexible else "template"
+    n_tmpl = sum(1 for c in CASES if c.get("template"))
+    n_dec = sum(1 for c in CASES if not c["expect_figure"])
+    print(f"{len(CASES)} questions "
+          f"({len(CASES) - n_dec} answerable, {n_dec} declines, "
+          f"{n_tmpl} template-routed)")
+
     tallies: dict = {m: [] for m in args.models}
     for run in range(1, args.runs + 1):
         for model in args.models:
-            print(f"\n=== {model} ({mode}) — run {run}/{args.runs} ===")
-            correct, total, failures = scorer(model)
+            print(f"\n=== {model} — run {run}/{args.runs} ===")
+            correct, total, notes = score(model)
             tallies[model].append((correct, total))
             print(f"score: {correct}/{total} ({correct / total:.0%})")
-            for f in failures:
-                print(f)
+            for n in notes:
+                print(n)
 
     if args.runs > 1:
         print("\n=== score summary (per run) ===")

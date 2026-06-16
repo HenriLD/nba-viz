@@ -30,10 +30,12 @@ from eval.run_eval import _param_ok
 _DIR = Path(__file__).parent
 _RESULTS = _DIR / "results"
 
-TEMPLATE_Q = (json.loads((_DIR / "questions.json").read_text())
-              + json.loads((_DIR / "hard_questions.json").read_text()))
-FLEX_Q = (json.loads((_DIR / "flexible_questions.json").read_text())
-          + json.loads((_DIR / "hard_flexible.json").read_text()))
+# One consolidated question set. The template path measures only the cases that
+# carry an expected `template` (with optional `params`); the flexible path runs
+# them all end-to-end.
+_CASES = json.loads((_DIR / "flexible_questions.json").read_text())
+TEMPLATE_Q = [c for c in _CASES if c.get("template")]
+FLEX_Q = _CASES
 
 
 def _client() -> OpenAI:
@@ -86,9 +88,9 @@ def bench_template(model: str) -> dict:
         if err:
             errors += 1
             continue
-        ok = got.get("template_id") == case["template_id"] and all(
+        ok = got.get("template_id") == case["template"] and all(
             _param_ok(k, v, (got.get("params") or {}).get(k))
-            for k, v in case["params"].items())
+            for k, v in (case.get("params") or {}).items())
         correct += ok
     n = len(TEMPLATE_Q)
     return dict(n=n, correct=correct, acc=correct / n, errors=errors,
