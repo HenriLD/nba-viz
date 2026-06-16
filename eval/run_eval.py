@@ -16,6 +16,8 @@ Usage:
 import argparse
 import json
 import sys
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from app import agent
@@ -38,55 +40,71 @@ def _param_ok(key: str, expected, actual) -> bool:
     return str(actual).lower() == str(expected).lower()
 
 
-def score(model: str) -> tuple[int, int, list[str]]:
-    """Run the full agent on every case; return (figure_correct, total, notes)."""
-    import json as _json
+def _grade(case: dict, figures: list, reply: str, used: list[str]) -> tuple[bool, list[str]]:
+    """Score one finished answer: (figure_correct, soft_notes)."""
+    notes = []
+    got_fig = len(figures) > 0
+    correct = got_fig == case["expect_figure"]
+    if not correct:
+        want = "a chart" if case["expect_figure"] else "a decline"
+        notes.append(f"  WRONG  {case['q']!r}\n"
+                     f"         expected {want}, got "
+                     f"{'chart' if got_fig else 'decline'}: {reply[:90]}")
+    if got_fig:
+        # Soft: did a superlative land on a rate/efficiency/uplift metric?
+        wm = case.get("want_metric")
+        if wm:
+            blob = json.dumps(figures).lower()
+            if not any(k in blob for k in wm):
+                notes.append(f"  BASIC  {case['q']!r}\n"
+                             f"         figure shows no {wm} metric "
+                             "(likely a raw-total leaderboard)")
+        # Soft: did a template-route question use the expected template?
+        tmpl = case.get("template")
+        if tmpl and tmpl not in used:
+            notes.append(f"  ROUTE  {case['q']!r}\n"
+                         f"         expected template {tmpl}, used {used}")
+    return correct, notes
+
+
+def score(model: str, workers: int = 8) -> tuple[int, int, list[str]]:
+    """Run the full agent on every case (in a thread pool — the work is network
+    I/O), returning (figure_correct, total, notes). The dispatch spy records the
+    template per question into thread-local storage so parallel workers don't
+    clobber each other."""
     import os
     os.environ["OPENROUTER_MODEL"] = model
 
-    # Capture which tool/template each answer used, for the soft routing check.
-    used: list[str] = []
+    tl = threading.local()
     orig_dispatch = agent._dispatch
 
     def spy(name, args):
-        used.append(args.get("template_id") if name == "render_chart" else "query_chart")
+        u = getattr(tl, "used", None)
+        if u is not None:
+            u.append(args.get("template_id") if name == "render_chart" else "query_chart")
         return orig_dispatch(name, args)
 
+    def run_one(i: int, case: dict):
+        tl.used = []
+        try:
+            r = agent.run_agent(case["q"])
+        except Exception as e:  # noqa: BLE001
+            return i, False, [f"  ERROR  {case['q']!r}: {e}"]
+        return i, *_grade(case, r["figures"], r.get("reply", ""), list(tl.used))
+
     agent._dispatch = spy
-    correct, notes = 0, []
+    results: list = [None] * len(CASES)
     try:
-        for case in CASES:
-            used.clear()
-            try:
-                r = agent.run_agent(case["q"])
-            except Exception as e:  # noqa: BLE001
-                notes.append(f"  ERROR  {case['q']!r}: {e}")
-                continue
-            got_fig = len(r["figures"]) > 0
-            if got_fig == case["expect_figure"]:
-                correct += 1
-            else:
-                want = "a chart" if case["expect_figure"] else "a decline"
-                notes.append(f"  WRONG  {case['q']!r}\n"
-                             f"         expected {want}, got "
-                             f"{'chart' if got_fig else 'decline'}: {r['reply'][:90]}")
-            if not got_fig:
-                continue
-            # Soft: did a superlative land on a rate/efficiency/uplift metric?
-            wm = case.get("want_metric")
-            if wm:
-                blob = _json.dumps(r["figures"]).lower()
-                if not any(k in blob for k in wm):
-                    notes.append(f"  BASIC  {case['q']!r}\n"
-                                 f"         figure shows no {wm} metric "
-                                 "(likely a raw-total leaderboard)")
-            # Soft: did a template-route question use the expected template?
-            tmpl = case.get("template")
-            if tmpl and tmpl not in used:
-                notes.append(f"  ROUTE  {case['q']!r}\n"
-                             f"         expected template {tmpl}, used {used}")
+        with ThreadPoolExecutor(max_workers=workers) as ex:
+            futs = [ex.submit(run_one, i, c) for i, c in enumerate(CASES)]
+            for f in as_completed(futs):
+                i, ok, notes = f.result()
+                results[i] = (ok, notes)
     finally:
         agent._dispatch = orig_dispatch
+
+    correct = sum(1 for ok, _ in results if ok)
+    notes = [n for _, ns in results for n in ns]  # in case order
     return correct, len(CASES), notes
 
 
@@ -112,12 +130,36 @@ def _print_provider_stats(entries: list[dict]) -> None:
         print(f"{p:18} {s['calls']:>5} {s['empty']:>5} {pct:>6.0%}   {models}{flag}")
 
 
+def _print_model_stats(entries: list[dict]) -> None:
+    """Per-underlying-model call health. The free router fans out across many
+    models, so this shows which actual models the empties came from."""
+    from collections import defaultdict
+    agg: dict = defaultdict(lambda: {"calls": 0, "empty": 0, "providers": set()})
+    for e in entries:
+        m = e.get("model") or "?"
+        agg[m]["calls"] += 1
+        agg[m]["empty"] += 0 if e.get("healthy") else 1
+        if e.get("provider"):
+            agg[m]["providers"].add(e["provider"])
+    if not agg:
+        return
+    print(f"\n=== model health ({len(agg)} distinct models) ===")
+    print(f"{'model':42} {'calls':>5} {'empty':>5} {'empty%':>7}   providers")
+    for m, s in sorted(agg.items(), key=lambda kv: -kv[1]['calls']):
+        pct = s["empty"] / max(s["calls"], 1)
+        flag = "  <-- flaky" if pct >= 0.34 and s["calls"] >= 3 else ""
+        provs = ", ".join(sorted(s["providers"]))[:30]
+        print(f"{m[:42]:42} {s['calls']:>5} {s['empty']:>5} {pct:>6.0%}   {provs}{flag}")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--models", nargs="+", required=True,
                         help="OpenRouter model slugs to compare")
     parser.add_argument("--runs", type=int, default=1,
                         help="repeat the whole eval N times (free models vary)")
+    parser.add_argument("--workers", type=int, default=8,
+                        help="parallel questions in flight (network I/O bound)")
     args = parser.parse_args()
 
     agent.reset_call_log()
@@ -130,8 +172,9 @@ def main() -> int:
     tallies: dict = {m: [] for m in args.models}
     for run in range(1, args.runs + 1):
         for model in args.models:
-            print(f"\n=== {model} — run {run}/{args.runs} ===")
-            correct, total, notes = score(model)
+            print(f"\n=== {model} — run {run}/{args.runs} ({args.workers} workers) ===",
+                  flush=True)
+            correct, total, notes = score(model, workers=args.workers)
             tallies[model].append((correct, total))
             print(f"score: {correct}/{total} ({correct / total:.0%})")
             for n in notes:
@@ -145,6 +188,7 @@ def main() -> int:
             print(f"{model}: {line}  (avg {avg:.0%})")
 
     _print_provider_stats(agent.call_log())
+    _print_model_stats(agent.call_log())
     return 0
 
 
