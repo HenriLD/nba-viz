@@ -38,6 +38,14 @@ def _model() -> str:
     return os.environ.get("OPENROUTER_MODEL", "openrouter/free")
 
 
+def _sql_only() -> bool:
+    """EXPERIMENT (env AGENT_SQL_ONLY): drop the curated render_chart templates
+    and force the model to write SQL for everything via query_chart — testing how
+    far a small model gets when only the visualizations stay templated, not the
+    data selection. Off by default; production keeps both tools."""
+    return os.environ.get("AGENT_SQL_ONLY", "").strip().lower() in ("1", "true", "yes", "on")
+
+
 # Providers to blacklist on the free tier — empty by default; populate from the
 # OpenRouter activity dashboard cross-referenced with the per-request provider
 # we log. Extend at runtime via env OPENROUTER_IGNORE_PROVIDERS (comma-sep).
@@ -375,6 +383,29 @@ def system_prompt() -> str:
         span = ", ".join(seasons)
     else:
         span = "the last ~5 seasons"
+
+    if _sql_only():
+        # Experiment: no templates — the model writes SQL for everything. The
+        # visualizations stay templated (you still pick a chart_type from the
+        # fixed grammar), only the data selection is fully open.
+        tool_section = (
+            "You have ONE tool: query_chart. For EVERY question, write a "
+            "read-only SQL SELECT against the views below and map result columns "
+            "onto a chart_type (the rendering is fixed/templated — your job is "
+            "the DATA + the right chart_type). Alias every selected column to the "
+            "x / y / series you choose. There are no canned templates; reproduce "
+            "any chart (trends, leaders, comparisons, splits, distributions, shot "
+            "charts, zones, defender-distance) yourself with SQL + a chart_type.")
+    else:
+        tool_section = (
+            "Decide which tool to use:\n"
+            "- render_chart — use whenever a curated template fits (it's faster "
+            "and prettier).\n  Templates:\n"
+            f"{catalog_prompt()}\n"
+            "- query_chart — use for anything templates don't cover: comparisons "
+            "across custom date ranges, specific opponents, home/away or win/loss "
+            "splits on stats templates don't expose, multi-condition filters, "
+            "league-wide aggregates, etc.")
     return f"""You are an NBA data visualization assistant. Answer questions by \
 rendering a chart, then give a one-or-two-sentence takeaway.
 
@@ -397,13 +428,7 @@ shot-level features — shot_chart, shot_heatmap, defender_distance_efficiency, 
 the clutch/hustle/defense-tracking tables — only exist for roughly the last 5 \
 seasons. For older seasons, offer a box-score view instead of those.
 
-Decide which tool to use:
-- render_chart — use whenever a curated template fits (it's faster and prettier).
-  Templates:
-{catalog_prompt()}
-- query_chart — use for anything templates don't cover: comparisons across custom \
-date ranges, specific opponents, home/away or win/loss splits on stats templates \
-don't expose, multi-condition filters, league-wide aggregates, etc.
+{tool_section}
 
 {VIEW_SCHEMA}
 
@@ -527,7 +552,7 @@ def run_agent(message: str, theme: str | None = None) -> dict:
     messages = [{"role": "system", "content": system_prompt()},
                 {"role": "user", "content": message}]
 
-    tools = [RENDER_CHART_TOOL, QUERY_CHART_TOOL]
+    tools = [QUERY_CHART_TOOL] if _sql_only() else [RENDER_CHART_TOOL, QUERY_CHART_TOOL]
     figures: list[dict] = []
     for _ in range(MAX_TURNS):
         try:

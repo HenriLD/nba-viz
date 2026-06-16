@@ -40,7 +40,8 @@ def _param_ok(key: str, expected, actual) -> bool:
     return str(actual).lower() == str(expected).lower()
 
 
-def _grade(case: dict, figures: list, reply: str, used: list[str]) -> tuple[bool, list[str]]:
+def _grade(case: dict, figures: list, reply: str, used: list[str],
+           check_routing: bool = True) -> tuple[bool, list[str]]:
     """Score one finished answer: (figure_correct, soft_notes)."""
     notes = []
     got_fig = len(figures) > 0
@@ -60,14 +61,15 @@ def _grade(case: dict, figures: list, reply: str, used: list[str]) -> tuple[bool
                              f"         figure shows no {wm} metric "
                              "(likely a raw-total leaderboard)")
         # Soft: did a template-route question use the expected template?
+        # (Skipped in SQL-only mode — there are no templates to route to.)
         tmpl = case.get("template")
-        if tmpl and tmpl not in used:
+        if check_routing and tmpl and tmpl not in used:
             notes.append(f"  ROUTE  {case['q']!r}\n"
                          f"         expected template {tmpl}, used {used}")
     return correct, notes
 
 
-def score(model: str, workers: int = 8) -> tuple[int, int, list[str]]:
+def score(model: str, workers: int = 8, check_routing: bool = True) -> tuple[int, int, list[str]]:
     """Run the full agent on every case (in a thread pool — the work is network
     I/O), returning (figure_correct, total, notes). The dispatch spy records the
     template per question into thread-local storage so parallel workers don't
@@ -90,7 +92,8 @@ def score(model: str, workers: int = 8) -> tuple[int, int, list[str]]:
             r = agent.run_agent(case["q"])
         except Exception as e:  # noqa: BLE001
             return i, False, [f"  ERROR  {case['q']!r}: {e}"]
-        return i, *_grade(case, r["figures"], r.get("reply", ""), list(tl.used))
+        return i, *_grade(case, r["figures"], r.get("reply", ""), list(tl.used),
+                          check_routing=check_routing)
 
     agent._dispatch = spy
     results: list = [None] * len(CASES)
@@ -160,11 +163,20 @@ def main() -> int:
                         help="repeat the whole eval N times (free models vary)")
     parser.add_argument("--workers", type=int, default=8,
                         help="parallel questions in flight (network I/O bound)")
+    parser.add_argument("--sql-only", action="store_true",
+                        help="EXPERIMENT: drop render_chart, force SQL for everything "
+                             "(sets AGENT_SQL_ONLY; skips the template routing check)")
     args = parser.parse_args()
+
+    import os
+    if args.sql_only:
+        os.environ["AGENT_SQL_ONLY"] = "1"
 
     agent.reset_call_log()
     n_tmpl = sum(1 for c in CASES if c.get("template"))
     n_dec = sum(1 for c in CASES if not c["expect_figure"])
+    mode = "SQL-ONLY (no templates)" if args.sql_only else "templates + SQL"
+    print(f"mode: {mode}")
     print(f"{len(CASES)} questions "
           f"({len(CASES) - n_dec} answerable, {n_dec} declines, "
           f"{n_tmpl} template-routed)")
@@ -174,7 +186,8 @@ def main() -> int:
         for model in args.models:
             print(f"\n=== {model} — run {run}/{args.runs} ({args.workers} workers) ===",
                   flush=True)
-            correct, total, notes = score(model, workers=args.workers)
+            correct, total, notes = score(model, workers=args.workers,
+                                          check_routing=not args.sql_only)
             tallies[model].append((correct, total))
             print(f"score: {correct}/{total} ({correct / total:.0%})")
             for n in notes:
