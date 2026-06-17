@@ -88,12 +88,18 @@ def score(model: str, workers: int = 8, check_routing: bool = True) -> tuple[int
 
     def run_one(i: int, case: dict):
         tl.used = []
+        agent.begin_gen_capture()
         try:
             r = agent.run_agent(case["q"])
         except Exception as e:  # noqa: BLE001
-            return i, False, [f"  ERROR  {case['q']!r}: {e}"]
-        return i, *_grade(case, r["figures"], r.get("reply", ""), list(tl.used),
-                          check_routing=check_routing)
+            return i, False, [f"  ERROR  {case['q']!r}: {e}",
+                              f"         trace: {agent.take_gen_ids()}"]
+        gen_ids = agent.take_gen_ids()
+        ok, notes = _grade(case, r["figures"], r.get("reply", ""), list(tl.used),
+                           check_routing=check_routing)
+        if notes:  # attach the question's generation ids for trace lookup
+            notes.append(f"         trace: {gen_ids}")
+        return i, ok, notes
 
     agent._dispatch = spy
     results: list = [None] * len(CASES)

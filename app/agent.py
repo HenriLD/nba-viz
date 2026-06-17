@@ -86,9 +86,31 @@ def call_log() -> list[dict]:
     return list(_CALL_LOG)
 
 
+# Per-thread sink of generation/request ids for the current question, so the
+# eval can attach them to a failure note — paste a gen id into
+# https://openrouter.ai/api/v1/generation?id=... (or the dashboard) for the
+# full reasoning trace. begin_gen_capture() opens it; take_gen_ids() drains it.
+_gen_capture = threading.local()
+
+
+def begin_gen_capture() -> None:
+    _gen_capture.events = []
+
+
+def take_gen_ids() -> list[str]:
+    return list(getattr(_gen_capture, "events", None) or [])
+
+
+def _record_gen(kind: str, ident) -> None:
+    ev = getattr(_gen_capture, "events", None)
+    if ev is not None:
+        ev.append(f"{kind}:{ident or '-'}@{time.strftime('%H:%M:%S')}")
+
+
 def _log_provider(resp) -> None:
     prov = (getattr(resp, "provider", None)
             or (getattr(resp, "model_extra", None) or {}).get("provider"))
+    gen = getattr(resp, "id", None)  # OpenRouter generation id -> reasoning trace
     healthy, finish = False, None  # default False: a malformed/no-choices body is unhealthy
     try:
         choice = resp.choices[0]
@@ -99,9 +121,10 @@ def _log_provider(resp) -> None:
     except Exception:  # noqa: BLE001
         pass
     _CALL_LOG.append({"provider": prov, "model": getattr(resp, "model", None),
-                      "healthy": healthy, "finish": finish})
-    log.info("served by provider=%s model=%s healthy=%s finish=%s",
-             prov, getattr(resp, "model", None), healthy, finish)
+                      "healthy": healthy, "finish": finish, "gen": gen})
+    _record_gen("ok" if healthy else "empty", gen)
+    log.info("served by provider=%s model=%s healthy=%s finish=%s gen=%s",
+             prov, getattr(resp, "model", None), healthy, finish, gen)
 
 
 _rate_lock = threading.Lock()
@@ -137,6 +160,9 @@ def _complete(client: OpenAI, **kwargs):
             return resp
         except openai.APIError as e:
             last = e
+            # request_id (or the error code) + timestamp, so a failed call is
+            # still traceable even when no generation id came back.
+            _record_gen("ERR", getattr(e, "request_id", None) or getattr(e, "code", None))
             log.warning("model call failed (attempt %d): %s", attempt + 1, e)
             time.sleep(0.8 * (attempt + 1))
     raise last
