@@ -175,6 +175,10 @@ def main() -> int:
     parser.add_argument("--max-rpm", type=float, default=0,
                         help="global cap on outgoing model calls/min (sets "
                              "AGENT_MAX_RPM) — stay under OpenRouter's free 16/min")
+    parser.add_argument("--out", default=None,
+                        help="persist each model's result to this JSON as it "
+                             "finishes; on restart, already-done models are "
+                             "skipped (resume-safe for long/interruptible runs)")
     args = parser.parse_args()
 
     import os
@@ -192,9 +196,20 @@ def main() -> int:
           f"({len(CASES) - n_dec} answerable, {n_dec} declines, "
           f"{n_tmpl} template-routed)")
 
+    done: dict = {}
+    if args.out and Path(args.out).exists():
+        done = json.loads(Path(args.out).read_text())
+        print(f"resuming — {len(done)} model(s) already done in {args.out}: "
+              f"{', '.join(done)}")
+
     tallies: dict = {m: [] for m in args.models}
     for run in range(1, args.runs + 1):
         for model in args.models:
+            if args.out and model in done:  # resume-safe: skip completed models
+                c, t = done[model]["correct"], done[model]["total"]
+                print(f"\n=== {model} — cached {c}/{t} ({c / t:.0%}) ===")
+                tallies[model].append((c, t))
+                continue
             print(f"\n=== {model} — run {run}/{args.runs} ({args.workers} workers) ===",
                   flush=True)
             correct, total, notes = score(model, workers=args.workers,
@@ -203,6 +218,9 @@ def main() -> int:
             print(f"score: {correct}/{total} ({correct / total:.0%})")
             for n in notes:
                 print(n)
+            if args.out:  # write after each model so an interruption loses nothing
+                done[model] = {"correct": correct, "total": total, "notes": notes}
+                Path(args.out).write_text(json.dumps(done, indent=1))
 
     if args.runs > 1:
         print("\n=== score summary (per run) ===")
