@@ -1,7 +1,35 @@
 """The read-only SQL sandbox (core.db._validate_select) — pure, no DB."""
 import pytest
 
-from core.db import UnsafeQuery, _validate_select
+from core.db import UnsafeQuery, _friendly_sql_error, _validate_select
+
+
+def _fake_exc(sqlstate, primary):
+    diag = type("Diag", (), {"message_primary": primary})()
+    orig = type("Orig", (), {"sqlstate": sqlstate, "diag": diag})()
+    return type("Exc", (Exception,), {"orig": orig})()
+
+
+def test_friendly_error_undefined_column_gives_hint_and_echoes_sql():
+    msg = _friendly_sql_error(
+        _fake_exc("42703", 'column "ts_pct" does not exist'),
+        "SELECT ts_pct FROM v_team_games", 6000)
+    assert 'column "ts_pct" does not exist' in msg          # core message kept
+    assert "doesn't exist on the view" in msg               # actionable hint
+    assert "Your query was: SELECT ts_pct FROM v_team_games" in msg
+    assert "sqlalche.me" not in msg and "_q" not in msg     # noise stripped
+
+
+def test_friendly_error_timeout_mentions_seconds_and_narrowing():
+    msg = _friendly_sql_error(
+        _fake_exc("57014", "canceling statement due to statement timeout"),
+        "SELECT * FROM v_player_games", 6000)
+    assert "timed out (>6s)" in msg and "Narrow it" in msg
+
+
+def test_friendly_error_unknown_sqlstate_still_concise():
+    msg = _friendly_sql_error(_fake_exc("XX999", "boom"), "SELECT 1", 6000)
+    assert msg.startswith("SQL error: boom") and "Your query was: SELECT 1" in msg
 
 
 @pytest.mark.parametrize("sql", [

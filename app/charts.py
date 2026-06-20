@@ -299,6 +299,90 @@ def build_figure(df: pd.DataFrame, chart_type: str, x: str | None, y: str | None
     return fig
 
 
+def _fmt_num(v) -> str:
+    try:
+        return f"{float(v):.3g}"
+    except (TypeError, ValueError):
+        return str(v)
+
+
+def _summarize(df: pd.DataFrame, chart_type: str, x: str | None, y: str | None,
+               series: str | None) -> str:
+    """A takeaway-ready summary keyed off the chart type — the headline numbers
+    the model needs to write an insight, not a raw 6-row dict dump."""
+    n = len(df)
+    cols = list(df.columns)
+    val = y if (y and y in df.columns) else None
+    cat = x if (x and x in df.columns) else None
+    has_series = bool(series and series in df.columns)
+
+    # Shot charts: makes / attempts / FG%.
+    if chart_type in ("shot_chart", "shot_heatmap"):
+        mcol = next((c for c in ("made", "shot_made", "shot_made_flag", "is_made")
+                     if c in df.columns), None)
+        if mcol is not None:
+            made = int(_as_made(df[mcol]).sum())
+            return f"{n} shots, {made} made ({made / n:.0%} FG)." if n else "no shots."
+        return f"{n} shots plotted on the court."
+
+    # Distributions: per-group median + spread.
+    if chart_type in ("box", "violin", "histogram"):
+        v = val or cat
+        grp = series if has_series else (cat if (cat and cat != v) else None)
+        if not v:
+            return f"{n} rows, columns {cols}."
+        if grp and grp in df.columns:
+            parts = []
+            for k, g in df.groupby(grp, sort=False):
+                gv = pd.to_numeric(g[v], errors="coerce").dropna()
+                if len(gv):
+                    parts.append(f"{k}: median {_fmt_num(gv.median())} "
+                                 f"(n={len(gv)}, {_fmt_num(gv.min())}–{_fmt_num(gv.max())})")
+            return f"{n} rows. Distribution of {v} — " + "; ".join(parts[:6]) + "."
+        gv = pd.to_numeric(df[v], errors="coerce").dropna()
+        if len(gv):
+            return (f"{n} rows. {v}: median {_fmt_num(gv.median())}, "
+                    f"range {_fmt_num(gv.min())}–{_fmt_num(gv.max())}.")
+        return f"{n} rows, columns {cols}."
+
+    # Trends: first → last (+ direction) and peak, per series.
+    if chart_type == "line" and cat and val:
+        def trend(g):
+            gv = pd.to_numeric(g[val], errors="coerce").dropna()
+            return (gv.iloc[0], gv.iloc[-1], gv.max()) if len(gv) else None
+        if has_series:
+            parts = []
+            for k, g in df.groupby(series, sort=False):
+                t = trend(g)
+                if t:
+                    parts.append(f"{k}: {_fmt_num(t[0])}→{_fmt_num(t[1])} (peak {_fmt_num(t[2])})")
+            return f"{n} points. " + "; ".join(parts[:6]) + "."
+        t = trend(df)
+        if t:
+            arrow = "up" if t[1] > t[0] else "down" if t[1] < t[0] else "flat"
+            return (f"{n} points: {val} {_fmt_num(t[0])}→{_fmt_num(t[1])} "
+                    f"({arrow}), peak {_fmt_num(t[2])}.")
+
+    # Leaderboards / categorical bars: top items, the #1→#2 gap, the range.
+    if chart_type in ("bar", "horizontal_bar", "grouped_bar") and cat and val and not has_series:
+        d = df[[cat, val]].copy()
+        d[val] = pd.to_numeric(d[val], errors="coerce")
+        d = d.dropna(subset=[val]).sort_values(val, ascending=False)
+        if len(d):
+            top = ", ".join(f"{r[cat]} {_fmt_num(r[val])}" for _, r in d.head(5).iterrows())
+            gap = (f"; #1 leads #2 by {_fmt_num(d[val].iloc[0] - d[val].iloc[1])}"
+                   if len(d) >= 2 else "")
+            rng = (f"; range {_fmt_num(d[val].min())}–{_fmt_num(d[val].max())}"
+                   if len(d) > 1 else "")
+            return f"{n} rows. Top by {val}: {top}{gap}{rng}."
+
+    # Grouped/series charts and anything else: compact note + a trimmed preview.
+    if has_series:
+        return (f"{n} rows across {df[series].nunique()} {series} groups. "
+                f"First rows: {df.head(5).to_dict('records')}")
+    return f"{n} rows, columns {cols}. First rows: {df.head(5).to_dict('records')}"
+
+
 def run_query_chart(args: dict) -> ChartResult:
     """Execute model SQL safely and render it. `args` carries sql + encoding."""
     sql = (args.get("sql") or "").strip()
@@ -322,7 +406,6 @@ def run_query_chart(args: dict) -> ChartResult:
         transform=args.get("transform", "none"),
         rolling_window=int(args.get("rolling_window") or 5))
 
-    preview = df.head(6).to_dict("records")
-    summary = (f"{len(df)} rows, columns {list(df.columns)}. "
-               f"First rows: {preview}")
+    summary = _summarize(df, chart_type, args.get("x"), args.get("y"),
+                         args.get("series"))
     return ChartResult(fig, summary)
