@@ -58,6 +58,61 @@ def _validate_select(sql: str) -> str:
     return s
 
 
+# Postgres SQLSTATE -> a concise, model-actionable hint. The raw psycopg/
+# SQLAlchemy error is verbose (echoes the wrapped query, links to sqlalche.me);
+# the model recovers far better from one clear sentence about what to fix.
+_SQLSTATE_HELP = {
+    "57014": "The query timed out (>{secs}s). Narrow it — filter to one "
+             "player/team/season, aggregate, or add LIMIT; don't scan every season.",
+    "42703": "That column doesn't exist on the view you queried. Check the "
+             "schema for the exact column names.",
+    "42P01": "No such table/view. Query only the documented views (v_player_games, "
+             "v_team_games, v_shots, player_advanced, team_advanced, "
+             "player_improvement, v_clutch, v_team_season, standings, clutch_stats, "
+             "hustle_stats, defense_tracking, defender_shooting).",
+    "42601": "SQL syntax error — re-check the statement around the position noted.",
+    "42803": "Grouping error: every non-aggregated SELECT column must appear in "
+             "GROUP BY (use GROUP BY 1, 2 …) or be wrapped in sum()/avg()/count().",
+    "42883": "No such function/operator — usually a type mismatch. Cast with "
+             "::numeric or ::int.",
+    "42804": "Type mismatch. Cast the column with ::numeric / ::int / ::text.",
+    "22P02": "Invalid value for a type (e.g. text where a number is expected). "
+             "Check casts and quoting.",
+    "42702": "Ambiguous column — qualify it with its table/view alias.",
+}
+
+
+def _find_db_error(exc: Exception):
+    """Walk the exception chain (pandas DatabaseError → SQLAlchemy → psycopg) for
+    the node that actually carries a Postgres SQLSTATE."""
+    seen, node = set(), exc
+    while node is not None and id(node) not in seen:
+        seen.add(id(node))
+        if getattr(node, "sqlstate", None):
+            return node
+        orig = getattr(node, "orig", None)
+        if orig is not None and getattr(orig, "sqlstate", None):
+            return orig
+        node = node.__cause__ or node.__context__
+    return None
+
+
+def _friendly_sql_error(exc: Exception, sql: str, timeout_ms: int) -> str:
+    """Translate a DB execution error into one actionable line + the model's own
+    SQL, stripped of the wrapped-subquery echo and the sqlalche.me URL."""
+    psy = _find_db_error(exc)
+    sqlstate = getattr(psy, "sqlstate", None)
+    diag = getattr(psy, "diag", None)
+    core = (getattr(diag, "message_primary", None)
+            or (str(psy).split("\n")[0].strip() if psy else "")
+            or str(exc).split("\n")[0].strip())
+    hint = _SQLSTATE_HELP.get(sqlstate, "")
+    if sqlstate == "57014":
+        hint = hint.format(secs=int(timeout_ms) // 1000)
+    parts = [p for p in (core, hint) if p]
+    return f"SQL error: {' — '.join(parts)}  Your query was: {sql}"
+
+
 def safe_select(sql: str, max_rows: int = 1000, timeout_ms: int = 6000) -> pd.DataFrame:
     """Run model-authored SQL with several independent guardrails:
 
@@ -67,14 +122,21 @@ def safe_select(sql: str, max_rows: int = 1000, timeout_ms: int = 6000) -> pd.Da
        capped regardless of what the model wrote.
     3. The transaction is READ ONLY, so even a novel bypass cannot mutate data.
     4. statement_timeout aborts a runaway query.
+
+    Execution errors are re-raised as a concise ValueError (see
+    _friendly_sql_error) so the model can fix its SQL instead of parsing a raw
+    psycopg traceback.
     """
     cleaned = _validate_select(sql)
     wrapped = f"SELECT * FROM (\n{cleaned}\n) AS _q LIMIT {int(max_rows)}"
-    with get_engine().connect() as conn:
-        with conn.begin():
-            conn.execute(text("SET TRANSACTION READ ONLY"))
-            conn.execute(text(f"SET LOCAL statement_timeout = {int(timeout_ms)}"))
-            return pd.read_sql(text(wrapped), conn)
+    try:
+        with get_engine().connect() as conn:
+            with conn.begin():
+                conn.execute(text("SET TRANSACTION READ ONLY"))
+                conn.execute(text(f"SET LOCAL statement_timeout = {int(timeout_ms)}"))
+                return pd.read_sql(text(wrapped), conn)
+    except Exception as e:  # noqa: BLE001 — translate any DB error for the model
+        raise ValueError(_friendly_sql_error(e, cleaned, timeout_ms)) from None
 
 
 @lru_cache(maxsize=32)

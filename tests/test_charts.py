@@ -3,7 +3,33 @@ Pure: synthetic DataFrames, no DB."""
 import pandas as pd
 import pytest
 
-from app.charts import _as_made, build_figure
+from app.charts import _as_made, _summarize, build_figure
+
+
+def test_summary_leaderboard_highlights_top_gap_and_range():
+    df = pd.DataFrame({"player": ["A", "B", "C"], "ts_pct": [0.70, 0.60, 0.50]})
+    s = _summarize(df, "bar", "player", "ts_pct", None)
+    assert "Top by ts_pct" in s and "A 0.7" in s
+    assert "leads #2" in s and "range" in s
+
+
+def test_summary_shot_chart_reports_fg_pct():
+    df = pd.DataFrame({"loc_x": [1, 2, 3, 4], "loc_y": [1, 2, 3, 4],
+                       "made": [True, False, True, True]})
+    s = _summarize(df, "shot_chart", "loc_x", "loc_y", "made")
+    assert "4 shots" in s and "3 made" in s and "75%" in s
+
+
+def test_summary_distribution_gives_per_group_median():
+    df = pd.DataFrame({"won": [True, True, False], "pts": [30, 20, 10]})
+    s = _summarize(df, "violin", "won", "pts", "won")
+    assert "Distribution of pts" in s and "median" in s
+
+
+def test_summary_trend_reports_direction_and_peak():
+    df = pd.DataFrame({"game": [1, 2, 3], "pts": [10, 20, 30]})
+    s = _summarize(df, "line", "game", "pts", None)
+    assert "up" in s and "peak 30" in s
 
 
 def _shots():

@@ -40,7 +40,8 @@ def _param_ok(key: str, expected, actual) -> bool:
     return str(actual).lower() == str(expected).lower()
 
 
-def _grade(case: dict, figures: list, reply: str, used: list[str]) -> tuple[bool, list[str]]:
+def _grade(case: dict, figures: list, reply: str, used: list[str],
+           check_routing: bool = True) -> tuple[bool, list[str]]:
     """Score one finished answer: (figure_correct, soft_notes)."""
     notes = []
     got_fig = len(figures) > 0
@@ -60,18 +61,25 @@ def _grade(case: dict, figures: list, reply: str, used: list[str]) -> tuple[bool
                              f"         figure shows no {wm} metric "
                              "(likely a raw-total leaderboard)")
         # Soft: did a template-route question use the expected template?
+        # (Skipped in SQL-only mode — there are no templates to route to.)
         tmpl = case.get("template")
-        if tmpl and tmpl not in used:
+        if check_routing and tmpl and tmpl not in used:
             notes.append(f"  ROUTE  {case['q']!r}\n"
                          f"         expected template {tmpl}, used {used}")
     return correct, notes
 
 
-def score(model: str, workers: int = 8) -> tuple[int, int, list[str]]:
+def score(model: str, workers: int = 8, check_routing: bool = True,
+          prior: dict | None = None, on_checkpoint=None,
+          checkpoint_every: int = 10) -> tuple[int, int, list[str], dict]:
     """Run the full agent on every case (in a thread pool — the work is network
-    I/O), returning (figure_correct, total, notes). The dispatch spy records the
-    template per question into thread-local storage so parallel workers don't
-    clobber each other."""
+    I/O). Returns (figure_correct, total, notes, results). The dispatch spy
+    records the template per question into thread-local storage so parallel
+    workers don't clobber each other.
+
+    Question-level resume: questions whose str(index) is already in `prior` are
+    skipped; on_checkpoint(results) fires every `checkpoint_every` completions so
+    an interrupted model resumes mid-stream rather than restarting from zero."""
     import os
     os.environ["OPENROUTER_MODEL"] = model
 
@@ -86,26 +94,41 @@ def score(model: str, workers: int = 8) -> tuple[int, int, list[str]]:
 
     def run_one(i: int, case: dict):
         tl.used = []
+        agent.begin_gen_capture()
         try:
             r = agent.run_agent(case["q"])
         except Exception as e:  # noqa: BLE001
-            return i, False, [f"  ERROR  {case['q']!r}: {e}"]
-        return i, *_grade(case, r["figures"], r.get("reply", ""), list(tl.used))
+            return i, False, [f"  ERROR  {case['q']!r}: {e}",
+                              f"         trace: {agent.take_gen_ids()}"]
+        gen_ids = agent.take_gen_ids()
+        ok, notes = _grade(case, r["figures"], r.get("reply", ""), list(tl.used),
+                           check_routing=check_routing)
+        if notes:  # attach the question's generation ids for trace lookup
+            notes.append(f"         trace: {gen_ids}")
+        return i, ok, notes
 
     agent._dispatch = spy
-    results: list = [None] * len(CASES)
+    results: dict = dict(prior or {})  # str(idx) -> {"ok": bool, "notes": [...]}
+    todo = [i for i in range(len(CASES)) if str(i) not in results]
+    done_n = 0
     try:
         with ThreadPoolExecutor(max_workers=workers) as ex:
-            futs = [ex.submit(run_one, i, c) for i, c in enumerate(CASES)]
+            futs = [ex.submit(run_one, i, CASES[i]) for i in todo]
             for f in as_completed(futs):
                 i, ok, notes = f.result()
-                results[i] = (ok, notes)
+                results[str(i)] = {"ok": ok, "notes": notes}
+                done_n += 1
+                if on_checkpoint and done_n % checkpoint_every == 0:
+                    on_checkpoint(results)
     finally:
         agent._dispatch = orig_dispatch
+    if on_checkpoint:
+        on_checkpoint(results)  # flush the remainder
 
-    correct = sum(1 for ok, _ in results if ok)
-    notes = [n for _, ns in results for n in ns]  # in case order
-    return correct, len(CASES), notes
+    correct = sum(1 for r in results.values() if r["ok"])
+    notes = [n for i in range(len(CASES)) if str(i) in results
+             for n in results[str(i)]["notes"]]  # in case order
+    return correct, len(CASES), notes, results
 
 
 def _print_provider_stats(entries: list[dict]) -> None:
@@ -160,25 +183,74 @@ def main() -> int:
                         help="repeat the whole eval N times (free models vary)")
     parser.add_argument("--workers", type=int, default=8,
                         help="parallel questions in flight (network I/O bound)")
+    parser.add_argument("--sql-only", action="store_true",
+                        help="EXPERIMENT: drop render_chart, force SQL for everything "
+                             "(sets AGENT_SQL_ONLY; skips the template routing check)")
+    parser.add_argument("--max-rpm", type=float, default=0,
+                        help="global cap on outgoing model calls/min (sets "
+                             "AGENT_MAX_RPM) — stay under OpenRouter's free 16/min")
+    parser.add_argument("--out", default=None,
+                        help="persist results to this JSON; resume-safe at the "
+                             "QUESTION level — completed models are skipped and a "
+                             "half-done model resumes mid-stream on restart")
+    parser.add_argument("--checkpoint-every", type=int, default=10,
+                        help="with --out, save partial progress every N questions")
     args = parser.parse_args()
+
+    import os
+    if args.sql_only:
+        os.environ["AGENT_SQL_ONLY"] = "1"
+    if args.max_rpm and args.max_rpm > 0:
+        os.environ["AGENT_MAX_RPM"] = str(args.max_rpm)
 
     agent.reset_call_log()
     n_tmpl = sum(1 for c in CASES if c.get("template"))
     n_dec = sum(1 for c in CASES if not c["expect_figure"])
+    mode = "SQL-ONLY (no templates)" if args.sql_only else "templates + SQL"
+    print(f"mode: {mode}")
     print(f"{len(CASES)} questions "
           f"({len(CASES) - n_dec} answerable, {n_dec} declines, "
           f"{n_tmpl} template-routed)")
 
+    done: dict = {}
+    if args.out and Path(args.out).exists():
+        done = json.loads(Path(args.out).read_text())
+        n_complete = sum(1 for v in done.values() if "correct" in v)
+        print(f"resuming from {args.out}: {n_complete} model(s) complete, "
+              f"{len(done) - n_complete} partially done")
+
+    def _save():
+        Path(args.out).write_text(json.dumps(done, indent=1))
+
     tallies: dict = {m: [] for m in args.models}
     for run in range(1, args.runs + 1):
         for model in args.models:
-            print(f"\n=== {model} — run {run}/{args.runs} ({args.workers} workers) ===",
-                  flush=True)
-            correct, total, notes = score(model, workers=args.workers)
+            entry = done.get(model) if args.out else None
+            if entry and "correct" in entry:  # fully complete — skip
+                c, t = entry["correct"], entry["total"]
+                print(f"\n=== {model} — cached {c}/{t} ({c / t:.0%}) ===")
+                tallies[model].append((c, t))
+                continue
+            prior = (entry or {}).get("results", {})
+            tag = (f"resume {len(prior)}/{len(CASES)}" if prior
+                   else f"run {run}/{args.runs}")
+            print(f"\n=== {model} — {tag} ({args.workers} workers) ===", flush=True)
+
+            def _checkpoint(results, model=model):  # save partial progress
+                done[model] = {"results": results, "total": len(CASES)}
+                _save()
+
+            correct, total, notes, _ = score(
+                model, workers=args.workers, check_routing=not args.sql_only,
+                prior=prior, on_checkpoint=_checkpoint if args.out else None,
+                checkpoint_every=args.checkpoint_every)
             tallies[model].append((correct, total))
             print(f"score: {correct}/{total} ({correct / total:.0%})")
             for n in notes:
                 print(n)
+            if args.out:  # finalize: replace the partial 'results' with the score
+                done[model] = {"correct": correct, "total": total, "notes": notes}
+                _save()
 
     if args.runs > 1:
         print("\n=== score summary (per run) ===")

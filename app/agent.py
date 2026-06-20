@@ -11,6 +11,7 @@ Names are resolved server-side (templates) or via unaccented name_key columns
 import json
 import logging
 import os
+import threading
 import time
 
 import openai
@@ -36,6 +37,14 @@ def _client() -> OpenAI:
 
 def _model() -> str:
     return os.environ.get("OPENROUTER_MODEL", "openrouter/free")
+
+
+def _sql_only() -> bool:
+    """EXPERIMENT (env AGENT_SQL_ONLY): drop the curated render_chart templates
+    and force the model to write SQL for everything via query_chart — testing how
+    far a small model gets when only the visualizations stay templated, not the
+    data selection. Off by default; production keeps both tools."""
+    return os.environ.get("AGENT_SQL_ONLY", "").strip().lower() in ("1", "true", "yes", "on")
 
 
 # Providers to blacklist on the free tier — empty by default; populate from the
@@ -77,9 +86,31 @@ def call_log() -> list[dict]:
     return list(_CALL_LOG)
 
 
+# Per-thread sink of generation/request ids for the current question, so the
+# eval can attach them to a failure note — paste a gen id into
+# https://openrouter.ai/api/v1/generation?id=... (or the dashboard) for the
+# full reasoning trace. begin_gen_capture() opens it; take_gen_ids() drains it.
+_gen_capture = threading.local()
+
+
+def begin_gen_capture() -> None:
+    _gen_capture.events = []
+
+
+def take_gen_ids() -> list[str]:
+    return list(getattr(_gen_capture, "events", None) or [])
+
+
+def _record_gen(kind: str, ident) -> None:
+    ev = getattr(_gen_capture, "events", None)
+    if ev is not None:
+        ev.append(f"{kind}:{ident or '-'}@{time.strftime('%H:%M:%S')}")
+
+
 def _log_provider(resp) -> None:
     prov = (getattr(resp, "provider", None)
             or (getattr(resp, "model_extra", None) or {}).get("provider"))
+    gen = getattr(resp, "id", None)  # OpenRouter generation id -> reasoning trace
     healthy, finish = False, None  # default False: a malformed/no-choices body is unhealthy
     try:
         choice = resp.choices[0]
@@ -90,9 +121,29 @@ def _log_provider(resp) -> None:
     except Exception:  # noqa: BLE001
         pass
     _CALL_LOG.append({"provider": prov, "model": getattr(resp, "model", None),
-                      "healthy": healthy, "finish": finish})
-    log.info("served by provider=%s model=%s healthy=%s finish=%s",
-             prov, getattr(resp, "model", None), healthy, finish)
+                      "healthy": healthy, "finish": finish, "gen": gen})
+    _record_gen("ok" if healthy else "empty", gen)
+    log.info("served by provider=%s model=%s healthy=%s finish=%s gen=%s",
+             prov, getattr(resp, "model", None), healthy, finish, gen)
+
+
+_rate_lock = threading.Lock()
+_last_call = [0.0]
+
+
+def _throttle() -> None:
+    """Global rate gate for benchmarking against OpenRouter's free tier (16
+    req/min cap). Set AGENT_MAX_RPM to space ALL outgoing calls — across threads
+    — at least 60/rpm apart. Off (0) by default; production never throttles."""
+    rpm = float(os.environ.get("AGENT_MAX_RPM", "0") or 0)
+    if rpm <= 0:
+        return
+    interval = 60.0 / rpm
+    with _rate_lock:
+        wait = _last_call[0] + interval - time.monotonic()
+        if wait > 0:
+            time.sleep(wait)
+        _last_call[0] = time.monotonic()
 
 
 def _complete(client: OpenAI, **kwargs):
@@ -102,12 +153,16 @@ def _complete(client: OpenAI, **kwargs):
     kwargs.setdefault("extra_body", {}).update(_provider_opts())
     last = None
     for attempt in range(3):
+        _throttle()
         try:
             resp = client.chat.completions.create(**kwargs)
             _log_provider(resp)
             return resp
         except openai.APIError as e:
             last = e
+            # request_id (or the error code) + timestamp, so a failed call is
+            # still traceable even when no generation id came back.
+            _record_gen("ERR", getattr(e, "request_id", None) or getattr(e, "code", None))
             log.warning("model call failed (attempt %d): %s", attempt + 1, e)
             time.sleep(0.8 * (attempt + 1))
     raise last
@@ -291,6 +346,16 @@ defense_tracking — one row per player per season (NBA tracking "defended" shot
   gp >= 30 AND freq >= 0.05 (or d_fga >= 150) — else 2-game players with a
   near-0 d_fg_pct top it. Rank by pct_plusminus (most negative), not d_fg_pct.
 
+defender_shooting — one row per player per season PER defender-distance bucket:
+  player_name, season, def_dist_range ('0-2 Feet - Very Tight', '2-4 Feet -
+  Tight', '4-6 Feet - Open', '6+ Feet - Wide Open'), gp, fga_frequency (share of
+  the player's shots at that distance), fgm, fga, fg_pct, efg_pct, fg3m, fg3a,
+  fg3_pct. This is how a SHOOTER performs by how tightly they were guarded —
+  THE source for "how does X shoot vs tight/open defense", "does X shoot better
+  when wide open", "X's shooting against pressure". One bar per def_dist_range
+  (chart_type bar/grouped_bar, x=def_dist_range, y=fg_pct or efg_pct), ordered
+  tight→open. Filter player_name (ILIKE '%curry%'); recent ~5 seasons only.
+
 v_team_season — one row per team per season (derived):
   team (3-letter), season, gp, wins, losses, pts_pg (offense), opp_pts_pg
   (defense — lower is better), net_pg, fg3a_pg, fg3_pct. Use to rank teams or
@@ -375,6 +440,29 @@ def system_prompt() -> str:
         span = ", ".join(seasons)
     else:
         span = "the last ~5 seasons"
+
+    if _sql_only():
+        # Experiment: no templates — the model writes SQL for everything. The
+        # visualizations stay templated (you still pick a chart_type from the
+        # fixed grammar), only the data selection is fully open.
+        tool_section = (
+            "You have ONE tool: query_chart. For EVERY question, write a "
+            "read-only SQL SELECT against the views below and map result columns "
+            "onto a chart_type (the rendering is fixed/templated — your job is "
+            "the DATA + the right chart_type). Alias every selected column to the "
+            "x / y / series you choose. There are no canned templates; reproduce "
+            "any chart (trends, leaders, comparisons, splits, distributions, shot "
+            "charts, zones, defender-distance) yourself with SQL + a chart_type.")
+    else:
+        tool_section = (
+            "Decide which tool to use:\n"
+            "- render_chart — use whenever a curated template fits (it's faster "
+            "and prettier).\n  Templates:\n"
+            f"{catalog_prompt()}\n"
+            "- query_chart — use for anything templates don't cover: comparisons "
+            "across custom date ranges, specific opponents, home/away or win/loss "
+            "splits on stats templates don't expose, multi-condition filters, "
+            "league-wide aggregates, etc.")
     return f"""You are an NBA data visualization assistant. Answer questions by \
 rendering a chart, then give a one-or-two-sentence takeaway.
 
@@ -397,13 +485,7 @@ shot-level features — shot_chart, shot_heatmap, defender_distance_efficiency, 
 the clutch/hustle/defense-tracking tables — only exist for roughly the last 5 \
 seasons. For older seasons, offer a box-score view instead of those.
 
-Decide which tool to use:
-- render_chart — use whenever a curated template fits (it's faster and prettier).
-  Templates:
-{catalog_prompt()}
-- query_chart — use for anything templates don't cover: comparisons across custom \
-date ranges, specific opponents, home/away or win/loss splits on stats templates \
-don't expose, multi-condition filters, league-wide aggregates, etc.
+{tool_section}
 
 {VIEW_SCHEMA}
 
@@ -527,7 +609,7 @@ def run_agent(message: str, theme: str | None = None) -> dict:
     messages = [{"role": "system", "content": system_prompt()},
                 {"role": "user", "content": message}]
 
-    tools = [RENDER_CHART_TOOL, QUERY_CHART_TOOL]
+    tools = [QUERY_CHART_TOOL] if _sql_only() else [RENDER_CHART_TOOL, QUERY_CHART_TOOL]
     figures: list[dict] = []
     for _ in range(MAX_TURNS):
         try:
