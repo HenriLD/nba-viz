@@ -38,14 +38,18 @@ builder — just ask:
 | Splits (home/away, wins/losses, rest) | Side-by-side bar comparison |
 | Distribution / consistency of a stat | Violin + box of every game, optionally split by wins/losses or home/away |
 | Clutch, hustle, tracking defense | Best clutch scorers, deflections/screen assists, defended FG% |
+| Efficiency — true shooting, per-36, points-per-shot | Volume-guarded rate leaderboards, not raw totals |
+| Team strength — offense vs. defense, pace, four factors | Pace-adjusted ratings from a team-season rollup |
+| Most improved / breakouts, season-over-season | Ranked by the change vs. last year |
+| Situational shot charts — in the clutch, by quarter, vs. an opponent, in wins | Filtered/colored make-miss chart on the court |
 | Triple-doubles, H2H, opponent tiers | Derived from game logs + a team-season summary |
 | **Anything else** — custom periods, specific opponents, multi-condition filters | The model writes a sandboxed SQL query and picks a chart for it |
 
 Charts are fully interactive (hover for game details, zoom, pan). Box-score data
-(scoring, rebounding, assists, shooting, standings…) reaches back to the
-**1980-81 season**; shot charts, heatmaps and player-tracking splits cover the
+(scoring, rebounding, assists, shooting, standings…) spans all **46 seasons from
+1980-81 to 2025-26**; shot charts, heatmaps and player-tracking splits cover the
 **most recent ~5 seasons**, where that detail exists. Regular season and
-playoffs, refreshed daily.
+playoffs, synced daily while games are being played.
 
 ## How it works
 
@@ -59,31 +63,36 @@ your question ──> small LLM picks ONE of two tools:
                                      mapped onto a generic chart
                                      (custom periods, opponents, constraints)
                         ▼
-              Postgres (40+ seasons of box logs + recent shots, friendly views) ──>
+              Postgres (46 seasons of box logs + recent shots, friendly views) ──>
                   Plotly figure ──> rendered in your browser
 ```
 
-The interesting design constraint: this runs on a *cheap* model (Kimi K2 via
-OpenRouter — fractions of a cent per question). Two complementary paths keep it
-reliable:
+The interesting design constraint: this runs on a *cheap, small* model
+(OpenRouter's free router by default — fractions of a cent per question). Two
+complementary paths keep it reliable:
 
-- **Templates** for the common 80% — the model just picks one of ~10 templates
-  and fills slots, which small models do very accurately (95% on our eval).
+- **Templates** for the common 80% — the model picks one of 11 curated templates
+  and fills slots, which small models do very accurately.
 - **Sandboxed SQL** for the long tail — the model writes a SELECT against
-  denormalized analysis views (with home/away, opponent, win, days-rest, and
-  margin precomputed). Modern small models write this SQL well and self-correct
-  from errors (100% on our flexible eval). Safety: the query runs in a
-  read-only transaction, single-statement, keyword-validated, row-capped, and
-  time-limited — it can only ever read.
+  denormalized analysis views (with home/away, opponent, win, days-rest, margin,
+  and advanced rate columns precomputed) and maps the result onto one of 11
+  chart types. Small models write this SQL well and self-correct from translated
+  errors. Safety: the query runs in a read-only transaction, single-statement,
+  keyword-validated, row-capped, and time-limited — it can only ever read.
+
+Together they score **~90%+ end-to-end** on a 127-question benchmark, and the
+design holds across models from 9B to 120B parameters (see
+[`EXPERIMENTS.md`](EXPERIMENTS.md)).
 
 Player names are fuzzy-matched and diacritic-folded ("steph", "curry", "jokic"
 all resolve), stats come from a fixed whitelist, and the model is told plainly
-what the data *cannot* answer (clutch splits, lineups, injuries) so it declines
-instead of inventing.
+what the data *cannot* answer (5-man lineups / on-off splits, play-type
+breakdowns, per-shot defender coverage, injuries) so it declines instead of
+inventing.
 
-Data is pulled daily from stats.nba.com (via [`nba_api`](https://github.com/swar/nba_api))
-into a free-tier Neon Postgres database. The whole stack runs on free hosting —
-the only operating cost is model tokens.
+Data is pulled from stats.nba.com (via [`nba_api`](https://github.com/swar/nba_api))
+into a Neon Postgres database — daily during the season. App hosting is free
+(Hugging Face Spaces); the running costs are model tokens and a small database.
 
 ## Honest limitations
 
@@ -95,8 +104,11 @@ the only operating cost is model tokens.
 - **Box scores to 1980, shots to ~5 seasons.** Career-arc and historical
   box-score questions reach back to 1980-81, but shot charts/heatmaps and
   player-tracking splits only exist for roughly the last 5 seasons.
-- **8 chart types.** If your question doesn't map to a template, the bot says
-  so and suggests what it *can* show instead of inventing data.
+- **No lineup or play-type data.** On-court/off-court splits, 5-man lineup
+  ratings, and pick-and-roll / post-up / transition breakdowns aren't published
+  in a form we ingest — the bot declines these instead of approximating.
+- **11 chart types.** If a question doesn't map to a chart, the bot says so and
+  suggests what it *can* show instead of inventing data.
 
 ## Run your own
 
@@ -138,10 +150,11 @@ uvicorn app.main:app --reload        # open http://localhost:8000
 
 > **⚠️ Run the backfill from a home connection.** stats.nba.com blocks most
 > cloud/datacenter IPs. The daily incremental sync (`python -m ingest.sync`,
-> ~11 requests) is scheduled via GitHub Actions
-> (`.github/workflows/daily-sync.yml`, needs a `DATABASE_URL` repo secret) —
-> if Actions runners get blocked too, run the same command from any home
-> machine on a scheduler.
+> ~11 requests) lives in GitHub Actions
+> (`.github/workflows/daily-sync.yml`, needs a `DATABASE_URL` repo secret); the
+> cron is commented out in the offseason and re-enabled when games resume. If
+> Actions runners get blocked too, run the same command from any home machine
+> on a scheduler.
 
 To deploy the app itself, any Docker host works — the included `Dockerfile`
 serves on port 7860 (Hugging Face Spaces' default). Set the same three
@@ -173,7 +186,8 @@ models) are written up in [`EXPERIMENTS.md`](EXPERIMENTS.md).
 ```
 core/        db engine + idempotent upserts + sandboxed safe_select,
              stat whitelist, season helpers
-db/          schema.sql, analysis_views.sql (friendly views for the SQL path)
+db/          schema.sql, analysis_views.sql (friendly views), enrich.sql
+             (advanced rollups: efficiency, team ratings, improvement, clutch)
 ingest/      nba_api wrappers, incremental daily sync, one-time backfill
 app/         FastAPI, agent loop (two tools), chart templates, generic
              query renderers (charts.py), court drawing, theme, chat UI
