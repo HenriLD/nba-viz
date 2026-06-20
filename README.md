@@ -8,28 +8,19 @@ app_port: 7860
 pinned: false
 ---
 
-<div align="center">
+# 🏀 Court Vision — NBA stats in plain English
 
-# 🏀 Court Vision
+**[Try it live →](https://henrild-nba-viz.hf.space)**
 
-### Ask an NBA question in plain English — get a broadcast-quality, interactive chart back.
+I built this because I didn't want to click through stat-site dropdowns to answer
+simple basketball questions. You type what you're after; it works out the query,
+builds the chart, and shows it. A few things people ask:
 
-[**▶ Try it live**](https://henrild-nba-viz.hf.space) &nbsp;·&nbsp; [How it works](#how-it-works) &nbsp;·&nbsp; [Run it yourself](#run-it-yourself)
-
-</div>
-
----
-
-I got tired of clicking through stat-site dropdowns to answer simple basketball
-questions, so I built a thing where you just *ask*. Type what you're curious
-about — it works out the query, builds the chart, and draws it. No filters, no
-menus, no query builder.
-
-> *"Show me Steph Curry's shot chart this season"*
-> <br> *"Jokić vs Embiid scoring by season"*
-> <br> *"Who's been the most clutch this year?"*
-> <br> *"How does SGA shoot against tight defense vs wide open?"*
-> <br> *"Warriors' three-point trend, 10-game rolling average"*
+- *"Show me Steph Curry's shot chart this season"*
+- *"Jokić vs Embiid scoring by season"*
+- *"Who's been the most clutch this year?"*
+- *"How does SGA shoot against tight defense vs wide open?"*
+- *"Warriors' three-point trend, 10-game rolling average"*
 
 ## What it can show
 
@@ -74,30 +65,27 @@ your question ──> the model picks ONE of two tools:
                   Plotly figure ──> rendered in your browser
 ```
 
-The fun constraint I set myself: run the whole thing on **free models**.
-OpenRouter's free tier can hand you a different model from one minute to the
-next, so the app is built not to care who's driving — two paths and a stack of
-guardrails do the work:
+It runs on free models — OpenRouter's free tier, which can route to a different
+model from one request to the next. So the app doesn't assume much about the
+model behind it; two paths and a set of guardrails do the work:
 
-- **Templates** for the common stuff — the model picks one of 11 hand-tuned
-  charts and fills in the blanks. Fast, consistent, hard to get wrong.
-- **Sandboxed SQL** for everything else — the model writes its own read-only
-  `SELECT` against friendly views (home/away, opponent, win, rest, margin and a
-  pile of advanced rate columns are precomputed) and maps the result onto one of
-  11 chart types. It writes surprisingly good SQL and fixes its own mistakes
-  straight from the error messages. The query runs read-only, single-statement,
-  keyword-checked, row-capped and time-limited — it can only ever look, never
-  touch.
+- **Templates** for common questions — the model picks one of 11 hand-tuned
+  charts and fills in the blanks. Fast and consistent.
+- **Sandboxed SQL** for the rest — the model writes its own read-only `SELECT`
+  against friendly views (home/away, opponent, win, rest, margin and a set of
+  advanced rate columns are precomputed) and maps the result onto one of 11
+  chart types. It writes solid SQL and corrects itself from the error messages.
+  The query is read-only, single-statement, keyword-checked, row-capped and
+  time-limited — it can only read.
 
-I benchmarked this across nine models, from a 9B up to a 120B, and it lands
-**~90%+** on a 127-question set either way — so even when the free router rolls
-you something tiny, it holds up. (Full writeup, including where it breaks, in
-[EXPERIMENTS.md](EXPERIMENTS.md).)
+I tested this across nine models, from 9B to 120B, and it scores ~90%+ on a
+127-question set regardless; the writeup (including where it falls down) is in
+[EXPERIMENTS.md](EXPERIMENTS.md).
 
-A few things keep it honest: names are fuzzy-matched and accent-folded ("steph",
-"curry", "jokic" all land), stats come from a fixed whitelist, and I tell the
-model up front what the data *can't* answer — lineups, on/off splits, play-types,
-injuries — so it says "I can't show that" instead of inventing a number.
+A few guardrails keep it honest: names are fuzzy-matched and accent-folded
+("steph", "curry", "jokic" all resolve), stats come from a fixed whitelist, and
+the model is told up front what the data can't answer — lineups, on/off splits,
+play-types, injuries — so it declines instead of inventing a number.
 
 Data comes from stats.nba.com (via [`nba_api`](https://github.com/swar/nba_api))
 into a Neon Postgres database, synced daily in season. Hosting is free on Hugging
@@ -210,4 +198,4 @@ of query examples on one page — visual QA, no LLM calls.
 3. Add a case to [`eval/flexible_questions.json`](eval/flexible_questions.json)
    (set `template`/`params` to pin the routing) and re-run the eval.
 
-PRs welcome — more templates, nicer court drawing, more seasons. 🏀
+PRs welcome — more templates, nicer court drawing, more seasons.
