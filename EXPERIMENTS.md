@@ -1,7 +1,9 @@
-# Experiments (the `experimental` branch)
+# Experiments
 
-Investigations that aren't (yet) production behaviour. Production lives on `main`;
-nothing here ships to HF until it's merged.
+A log of benchmark-driven investigations behind Court Vision's design. The features
+they exercise live in the codebase but are **off by default** in production
+(env-gated) — e.g. the SQL-only mode below is `AGENT_SQL_ONLY=1`, unset in normal
+operation.
 
 ---
 
@@ -35,11 +37,11 @@ was tight.
 | openai/gpt-oss-20b | 20B | **96%** | clean |
 | nvidia/nemotron-3-nano-30b-a3b | 30B / 3B active (MoE) | **94%** | clean |
 | openai/gpt-oss-120b | 120B | **94%** | clean |
-| cohere/north-mini-code | mini (code) | **93%** | clean |
-| nex-agi/nex-n2-pro | — | **93%** | clean |
+| cohere/north-mini-code | 30B / 3B active (MoE) | **93%** | clean |
+| nex-agi/nex-n2-pro | 397B / 17B active (MoE) | **93%** | clean |
 | nvidia/nemotron-nano-9b-v2 | 9B | **90%** | clean |
 | google/gemma-4-31b-it | 31B | **89%** | raw 71%; 26 questions rate-limited out |
-| poolside/laguna-xs.2 | — | **89%** | clean |
+| poolside/laguna-xs.2 | 33B / 3B active (MoE) | **89%** | clean |
 | **liquid/lfm-2.5-1.2b-thinking** | **1.2B** | **11%** | **floor — tool-calling, not SQL** |
 
 ### Findings
@@ -80,5 +82,6 @@ traces land in the git-ignored `eval/results/`.
   post-hoc.
 - A sub-9B "SQL-from-text" path (no tool calls) to test whether the *reasoning* floor is
   lower than the *tool-calling* floor.
-- Improve the tool-feedback loop (clearer SQL errors, chart-type-aware data summaries) —
-  in progress.
+
+The tool-feedback loop this surfaced (clearer SQLSTATE-translated errors, chart-type-aware
+data summaries) shipped to production — see `core/db.py` / `app/charts.py`.

@@ -165,6 +165,9 @@ python -m eval.run_eval --models moonshotai/kimi-k2 --runs 3
 python -m eval.benchmark --models moonshotai/kimi-k2 qwen/qwen-2.5-72b-instruct
 ```
 
+Benchmark-driven investigations (e.g. a templates-vs-SQL-only study across nine
+models) are written up in [`EXPERIMENTS.md`](EXPERIMENTS.md).
+
 ## Project layout
 
 ```
